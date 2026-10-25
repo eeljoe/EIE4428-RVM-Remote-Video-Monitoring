@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 371 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 373 tests, ~10s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:

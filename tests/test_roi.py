@@ -271,3 +271,16 @@ async def test_the_client_script_drives_the_new_controls(client):
     assert "/api/motion" in script
     assert "pointerdown" in script
     assert "/api/clips" in script
+
+async def test_an_unhashable_sensitivity_value_is_a_400_not_a_crash(client):
+    """A list is not a name: it must be refused, not raise inside the lookup."""
+    response = await client.post("/api/motion", json={"sensitivity": []})
+
+    assert response.status == 400
+
+
+async def test_a_non_ascii_frame_number_is_a_404(client):
+    """Superscript digits pass ``str.isdigit`` but not ``int``; refuse them."""
+    response = await client.get("/api/clips/20260101_120000/%C2%B2.jpg")
+
+    assert response.status == 404
