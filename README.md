@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 343 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 371 tests, ~10s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -53,6 +53,8 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Rate control** | TM5 virtual buffer, `Q = (d/r) × 31`, H.264 ±2 QP limiter, bpp starting-point model |
 | **Transport** | RTP packetisation with marker bit, adaptive jitter buffer, RFC 3550 jitter recursion |
 | **Analysis** | Motion detection with alarm + bounding box, Haar face detection, PSNR / SSIM |
+| **Detection zone** | Drag a box on the picture to watch only that area; three sensitivity levels. The zone lives on the server, so a reload or a second viewer sees the same one |
+| **Clips** | Recording list with a thumbnail of each clip's first frame, served from `/api/clips/<clip>/<n>.jpg` |
 | **Recording** | Timestamped colour JPEG clips written off the live path |
 | **Concurrency** | Unlimited viewers; one encode feeds all of them |
 | **Two views** | *Camera* shows the raw picture, *Decoded (RVM1)* shows what a receiver reconstructs from the bitstream — the codec's own distortion, visible rather than claimed |
@@ -226,3 +228,27 @@ disappears by itself:
 
 The build prints a reminder while the placeholders are still there, so a
 half-finished report cannot be shipped by accident.
+
+---
+
+## Demonstration script
+
+Five to seven minutes, in the order that shows the most with the least clicking.
+
+1. Start the server on the machine with the camera; open the printed LAN address on the second PC. Say what the picture is: a remote station watching a place through an ordinary browser.
+2. Move in front of the camera. The alarm overlay pulses and a red box follows the movement.
+3. Drag a box around the doorway (or any corner), then move outside it: no alarm. Move inside it: alarm. Say that the zone is enforced on the server, so every viewer gets it.
+4. Switch the sensitivity to *low*, wave again; switch back. Explain that the three levels trade false alarms against missed events.
+5. Switch to **Decoded (RVM1)** and back. The picture barely changes, so the quality cost of the codec is visible instead of claimed. Point at PSNR and QP in the panel.
+6. Open the dashboard a second time (another browser or a phone). Both viewers work, and the encoder cost did not change — one encode feeds everyone.
+7. Start a recording, stop it, and show the clip appearing in the Clips panel with its thumbnail. Explain that frames are timestamped and written off the live path.
+
+## Before submission
+
+- [ ] Group member names and student IDs in the report (the build refuses silently to be complete otherwise).
+- [ ] Report exported and read once end to end — the division of effort must match what actually happened.
+- [ ] `pytest`, `verify_system.py` and `tools/benchmark.py` run on the machine that will be used for the demonstration; numbers in the report match that run.
+- [ ] Real camera tried on that machine, with Teams / Zoom / the Camera app closed.
+- [ ] Second PC connects over the LAN address, not `localhost`, and the firewall rule is in place.
+- [ ] `mini-project/EIE4428-RVM.zip` rebuilt with `tools/make_zip.py`, which unpacks its own output and runs the test suite there.
+- [ ] Test recordings containing private material deleted before zipping.
