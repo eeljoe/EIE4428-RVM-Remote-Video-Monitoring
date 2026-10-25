@@ -111,7 +111,12 @@ async def test_clips_endpoint_lists_recordings(client):
     assert empty["count"] == 0
 
     await (await client.post("/api/record", json={"recording": True})).json()
-    await asyncio.sleep(0.6)
+    # Wait until the pump has actually written a frame rather than sleeping a
+    # fixed time: on a loaded machine a fixed window can be missed.
+    for _ in range(60):
+        if (await (await client.get("/api/clips")).json())["count"] == 1:
+            break
+        await asyncio.sleep(0.05)
     await (await client.post("/api/record", json={"recording": False})).json()
 
     listed = await (await client.get("/api/clips")).json()

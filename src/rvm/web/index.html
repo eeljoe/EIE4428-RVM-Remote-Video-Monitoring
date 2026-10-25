@@ -14,8 +14,10 @@
 
 <main class="layout">
   <section class="viewer">
-    <div class="stage">
+    <div class="stage" id="stage">
       <img id="stream" src="/api/stream.mjpg" alt="Live camera feed" />
+      <div class="roi" id="roi" hidden></div>
+      <div class="bbox" id="bbox" hidden></div>
       <div class="alarm" id="alarm">MOTION DETECTED</div>
       <div class="overlay" id="overlay-bottom">
         <span id="src-label">source</span>
@@ -35,12 +37,23 @@
         </select>
       </label>
       <button id="apply">Apply</button>
+      <label>Motion sensitivity
+        <select id="sensitivity">
+          <option value="low">low</option>
+          <option value="medium" selected>medium</option>
+          <option value="high">high</option>
+        </select>
+      </label>
+      <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
       <button id="view-source" class="toggle active">Camera</button>
       <button id="view-decoded" class="toggle">Decoded (RVM1)</button>
       <button id="snapshot">Save snapshot</button>
       <button id="record">Start recording</button>
       <button id="metrics">Export metrics</button>
     </div>
+    <p class="hint">
+      Drag on the picture to watch only that area &mdash; movement elsewhere stops raising the alarm.
+    </p>
   </section>
 
   <aside class="panel">
@@ -66,12 +79,18 @@
     <h2>Analysis</h2>
     <dl class="metrics">
       <div><dt>Motion</dt><dd id="m-motion">&mdash;</dd></div>
+      <div><dt>Detection zone</dt><dd id="m-roi">&mdash;</dd></div>
       <div><dt>Faces</dt><dd id="m-faces">&mdash;</dd></div>
       <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
     </dl>
 
     <h2>Bitrate</h2>
     <canvas id="spark" width="260" height="60"></canvas>
+
+    <h2>Clips</h2>
+    <ul class="clips" id="clips">
+      <li class="muted">No recording yet.</li>
+    </ul>
   </aside>
 </main>
 

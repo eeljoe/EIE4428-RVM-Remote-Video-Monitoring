@@ -29,7 +29,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ..analysis.detect import FaceDetector, MotionDetector
+from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
 from ..analysis.quality import psnr
 from ..codec.video import VideoEncoder
 from ..core.colorspace import rgb_to_ycbcr, to_planes
@@ -107,6 +107,10 @@ class StreamSession:
             width, height, target_bitrate=bitrate, frame_rate=fps, gop_size=gop_size
         )
         self.motion_detector = MotionDetector(threshold=motion_threshold)
+        # The operator can narrow detection to a region and choose how eager
+        # the alarm is; defaults reproduce the behaviour with no controls used.
+        self.roi: tuple[float, float, float, float] | None = None
+        self.motion_sensitivity = "medium"
         self.face_detector = FaceDetector()
 
         self.stats = StreamStats(window_seconds=4.0)
@@ -164,6 +168,29 @@ class StreamSession:
             self.recorder.stop()
             self.recorder = None
 
+    def set_roi(self, roi) -> None:
+        """Confine motion detection to a normalised region, or clear it.
+
+        Clearing the scene's history is part of the change, not a side effect:
+        the background model was learnt with a different definition of "the
+        monitored area", and keeping it would leave the alarm comparing
+        apples with oranges for the first seconds after the operator draws a
+        box.
+        """
+        if roi is None:
+            self.roi = None
+        else:
+            # Validating through the detector keeps one definition of a legal
+            # region rather than two that can drift apart.
+            MotionDetector._bounds(roi, (self.height, self.width))
+            self.roi = tuple(float(value) for value in roi)
+        self.motion_detector.reset()
+
+    def set_motion_sensitivity(self, name: str) -> None:
+        """Pick how eager the motion alarm is: ``low``, ``medium`` or ``high``."""
+        self.motion_detector.configure(**sensitivity_settings(name))
+        self.motion_sensitivity = name
+
     @property
     def recording(self) -> bool:
         return self.recorder is not None
@@ -210,7 +237,7 @@ class StreamSession:
 
         luma = to_planes(rgb_to_ycbcr(frame))[0].astype(np.uint8)
 
-        self._motion = self.motion_detector.update(luma)
+        self._motion = self.motion_detector.update(luma, roi=self.roi)
         self._faces = self.face_detector.detect(luma)
 
         encoded = self.encoder.encode(frame)
@@ -328,6 +355,8 @@ class StreamSession:
                 "motion_ratio": motion.get("motion_ratio", 0.0),
                 "bbox": motion.get("bbox"),
                 "faces": faces.get("count", 0),
+                "roi": list(self.roi) if self.roi else None,
+                "motion_sensitivity": self.motion_sensitivity,
                 "motion": motion,
             }
         )

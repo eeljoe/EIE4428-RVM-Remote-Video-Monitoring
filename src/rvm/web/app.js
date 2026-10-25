@@ -25,6 +25,7 @@ function fmtBitrate(bps) {
 }
 
 function render(s) {
+  lastStatus = s;
   setText("m-res", s.width + "×" + s.height);
   setText("m-fps", (s.frame_rate ?? 0).toFixed(1) + " fps");
   setText("m-bitrate", fmtBitrate(s.bitrate));
@@ -41,10 +42,43 @@ function render(s) {
   setText("src-label", "source: " + (s.source || "—"));
 
   $("alarm").classList.toggle("on", Boolean(s.alarm));
+  setText("m-roi", s.roi ? "custom zone" : "whole picture");
+  drawRegion(s);
+  drawMotionBox(s);
+  if (s.motion_sensitivity) $("sensitivity").value = s.motion_sensitivity;
 
   history.bitrate.push(s.bitrate ?? 0);
   if (history.bitrate.length > history.max) history.bitrate.shift();
   drawSpark();
+}
+
+/* The two boxes are drawn in percentages of the picture, so they stay glued to
+ * the scene no matter how the browser scales the stream. */
+function placeBox(node, x1, y1, x2, y2) {
+  node.hidden = false;
+  node.style.left = (x1 * 100).toFixed(2) + "%";
+  node.style.top = (y1 * 100).toFixed(2) + "%";
+  node.style.width = ((x2 - x1) * 100).toFixed(2) + "%";
+  node.style.height = ((y2 - y1) * 100).toFixed(2) + "%";
+}
+
+function drawRegion(s) {
+  const node = $("roi");
+  if (!s.roi) {
+    node.hidden = true;
+    return;
+  }
+  placeBox(node, s.roi[0], s.roi[1], s.roi[2], s.roi[3]);
+}
+
+function drawMotionBox(s) {
+  const node = $("bbox");
+  if (!s.alarm || !s.bbox || !s.width || !s.height) {
+    node.hidden = true;
+    return;
+  }
+  const [top, left, bottom, right] = s.bbox;
+  placeBox(node, left / s.width, top / s.height, right / s.width, bottom / s.height);
 }
 
 function drawSpark() {
@@ -181,13 +215,127 @@ function wire() {
   $("stream").onerror = () => {
     $("stream").src = "/api/stream.mjpg?view=" + view + "&t=" + Date.now();
   };
+
+  $("sensitivity").onchange = async (event) => {
+    try {
+      render(await postJSON("/api/motion", { sensitivity: event.target.value }));
+    } catch (err) {
+      alert("Could not change the sensitivity: " + err.message);
+    }
+  };
+
+  $("clear-roi").onclick = async () => {
+    try {
+      render(await postJSON("/api/motion", { roi: null }));
+    } catch (err) {
+      alert("Could not clear the zone: " + err.message);
+    }
+  };
+}
+
+/* ---- detection zone ----------------------------------------------------- */
+
+/* Dragging on the picture asks the server to watch only that rectangle. The
+ * server does the confining -- the box here is only the operator's way of
+ * saying where -- so a refresh or a second viewer sees the same zone. */
+let dragStart = null;
+let lastStatus = null;
+
+function fractionAt(event) {
+  const rect = $("stream").getBoundingClientRect();
+  const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
+  const y = Math.min(Math.max(event.clientY - rect.top, 0), rect.height);
+  return rect.width && rect.height ? [x / rect.width, y / rect.height] : [0, 0];
+}
+
+function wireZone() {
+  const stage = $("stage");
+
+  stage.addEventListener("pointerdown", (event) => {
+    if (event.target.closest("button")) return;
+    dragStart = fractionAt(event);
+    stage.setPointerCapture(event.pointerId);
+  });
+
+  stage.addEventListener("pointermove", (event) => {
+    if (!dragStart) return;
+    const [x, y] = fractionAt(event);
+    placeBox(
+      $("roi"),
+      Math.min(dragStart[0], x),
+      Math.min(dragStart[1], y),
+      Math.max(dragStart[0], x),
+      Math.max(dragStart[1], y)
+    );
+  });
+
+  stage.addEventListener("pointerup", async (event) => {
+    if (!dragStart) return;
+    const [x, y] = fractionAt(event);
+    const region = [
+      Math.min(dragStart[0], x),
+      Math.min(dragStart[1], y),
+      Math.max(dragStart[0], x),
+      Math.max(dragStart[1], y),
+    ];
+    dragStart = null;
+
+    // A click rather than a drag: leave the existing zone alone.
+    if ((region[2] - region[0]) * (region[3] - region[1]) < 0.01) {
+      if (lastStatus) drawRegion(lastStatus);
+      return;
+    }
+
+    try {
+      render(await postJSON("/api/motion", { roi: region }));
+    } catch (err) {
+      alert("Could not set the zone: " + err.message);
+    }
+  });
+}
+
+/* ---- recorded clips ----------------------------------------------------- */
+
+/* The clip list is a convenience: a failure here must never disturb a live
+ * picture, so the fetch swallows its own errors. */
+async function pollClips() {
+  try {
+    const response = await fetch("/api/clips", { cache: "no-store" });
+    const data = await response.json();
+    renderClips(data.clips || []);
+  } catch (err) {
+    /* keep the old list rather than blanking the panel */
+  }
+}
+
+function renderClips(clips) {
+  const list = $("clips");
+  const recent = clips.slice(-5).reverse();
+  if (!recent.length) {
+    list.innerHTML = '<li class="muted">No recording yet.</li>';
+    return;
+  }
+  list.innerHTML = recent
+    .map((clip) => {
+      const src = "/api/clips/" + clip.name + "/0.jpg";
+      return (
+        '<li><a href="' + src + '" target="_blank" rel="noopener">' +
+        '<img src="' + src + '" alt="first frame of ' + clip.name + '" loading="lazy" />' +
+        "<span>" + clip.name.replace("_", " ") + "<br /><small>" +
+        clip.frames + " frames</small></span></a></li>"
+      );
+    })
+    .join("");
 }
 
 /* ---- start -------------------------------------------------------------- */
 
 wire();
+wireZone();
 setView("source");
 connect();
+pollClips();
+setInterval(pollClips, 3000);
 tickClock();
 setInterval(tickClock, 1000);
 setInterval(() => {

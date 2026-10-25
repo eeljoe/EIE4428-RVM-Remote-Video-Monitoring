@@ -34,9 +34,41 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-__all__ = ["FaceDetection", "FaceDetector", "MotionDetector", "MotionResult"]
+__all__ = [
+    "FaceDetection",
+    "FaceDetector",
+    "MotionDetector",
+    "MotionResult",
+    "sensitivity_settings",
+]
 
 _ERODE_KERNEL = np.ones((3, 3), dtype=np.uint8)
+
+# Three operating points instead of a slider.  ``threshold`` is the fraction of
+# the monitored area that must change to raise the alarm; ``sensitivity`` is the
+# per-pixel difference (in luma levels) that counts as "changed" at all.  The
+# medium row is the historical default, so an untouched detector behaves exactly
+# as it did before these controls existed.
+SENSITIVITY_LEVELS: dict[str, dict[str, float]] = {
+    "low": {"threshold": 0.03, "sensitivity": 20.0},
+    "medium": {"threshold": 0.01, "sensitivity": 12.0},
+    "high": {"threshold": 0.005, "sensitivity": 8.0},
+}
+
+
+def sensitivity_settings(name: str) -> dict[str, float]:
+    """Parameters for a named sensitivity level.
+
+    A named level rather than two loose numbers because these are choices an
+    operator makes ("make it quieter"), not values they can reason about.
+    """
+    try:
+        return dict(SENSITIVITY_LEVELS[name])
+    except KeyError:
+        raise ValueError(
+            f"unknown sensitivity {name!r}; expected one of "
+            f"{sorted(SENSITIVITY_LEVELS)}"
+        ) from None
 
 
 def _erode(mask: np.ndarray) -> np.ndarray:
@@ -115,9 +147,57 @@ class MotionDetector:
         self._background = None
         self._alarm_active = False
 
-    def update(self, luma: np.ndarray) -> MotionResult:
-        """Compare a luma frame against the background and update the model."""
+    def configure(
+        self, threshold: float | None = None, sensitivity: float | None = None
+    ) -> None:
+        """Change the operating point and re-learn the scene.
+
+        Re-learning is deliberate: the thresholds decide what counts as
+        movement, so the statistics of the old setting say nothing about the
+        new one.  Carrying the old background over would make the first frames
+        under the new setting alarm for no reason.
+        """
+        if threshold is not None:
+            if not 0.0 < threshold < 1.0:
+                raise ValueError(f"threshold must be in (0, 1), got {threshold}")
+            self.threshold = float(threshold)
+            self.clear_threshold = self.threshold * 0.5
+        if sensitivity is not None:
+            if sensitivity <= 0:
+                raise ValueError(f"sensitivity must be positive, got {sensitivity}")
+            self.sensitivity = float(sensitivity)
+        self.reset()
+
+    @staticmethod
+    def _bounds(roi, shape) -> tuple[int, int, int, int] | None:
+        """Turn a normalised region into pixel bounds, or ``None`` for all of it."""
+        if roi is None:
+            return None
+        try:
+            x1, y1, x2, y2 = (float(value) for value in roi)
+        except (TypeError, ValueError):
+            raise ValueError(f"roi must be four numbers, got {roi!r}") from None
+        if not all(0.0 <= value <= 1.0 for value in (x1, y1, x2, y2)):
+            raise ValueError(f"roi must be normalised to [0, 1], got {roi!r}")
+        if x1 >= x2 or y1 >= y2:
+            raise ValueError(f"roi must have positive width and height, got {roi!r}")
+
+        height, width = shape
+        top, left = int(y1 * height), int(x1 * width)
+        bottom, right = int(y2 * height), int(x2 * width)
+        return top, left, max(bottom, top + 1), max(right, left + 1)
+
+    def update(self, luma: np.ndarray, roi=None) -> MotionResult:
+        """Compare a luma frame against the background and update the model.
+
+        ``roi`` confines the alarm to a normalised ``(x1, y1, x2, y2)`` region;
+        movement outside it is ignored, because a monitoring camera usually
+        looks at places where movement is expected and irrelevant.  The box
+        that comes back is always in full-frame coordinates, so the browser can
+        draw it without knowing where the region is.
+        """
         frame = self._validate(luma).astype(np.float64)
+        bounds = self._bounds(roi, frame.shape)
 
         if self._background is None:
             # The very first frame defines the scene; there is nothing to
@@ -129,11 +209,21 @@ class MotionDetector:
         difference = np.abs(frame - self._background)
         mask = (difference > self.sensitivity).astype(np.uint8)
 
+        if bounds is not None:
+            top, left, bottom, right = bounds
+            inside = np.zeros_like(mask)
+            inside[top:bottom, left:right] = 1
+            mask *= inside
+
         if self.erode:
             mask = _erode(mask)
 
         changed = int(mask.sum())
-        ratio = changed / float(mask.size)
+        if bounds is None:
+            area = mask.size
+        else:
+            area = (bounds[2] - bounds[0]) * (bounds[3] - bounds[1])
+        ratio = changed / float(area)
 
         if ratio >= self.threshold:
             self._alarm_active = True

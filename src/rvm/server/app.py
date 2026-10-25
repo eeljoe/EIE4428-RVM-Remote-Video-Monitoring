@@ -7,6 +7,8 @@ Routes
 ``GET  /api/snapshot.jpg``     the current picture
 ``GET  /api/stream.mjpg``      continuous MJPEG video
 ``GET  /api/clips``            recordings made so far
+``GET  /api/clips/<c>/<n>.jpg`` one stored frame, for previewing a clip
+``POST /api/motion``           confine detection to a region / pick sensitivity
 ``POST /api/config``           change the encoder operating point
 ``POST /api/record``           start or stop a clip
 ``GET  /api/metrics``          download the current telemetry as JSON
@@ -23,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from pathlib import Path
 
@@ -79,8 +82,10 @@ def create_app(
     app.router.add_get("/api/snapshot.jpg", handle_snapshot)
     app.router.add_get("/api/stream.mjpg", handle_mjpeg)
     app.router.add_get("/api/clips", handle_clips)
+    app.router.add_get("/api/clips/{clip}/{frame}.jpg", handle_clip_frame)
     app.router.add_get("/api/metrics", handle_metrics)
     app.router.add_post("/api/config", handle_config)
+    app.router.add_post("/api/motion", handle_motion)
     app.router.add_post("/api/record", handle_record)
     app.router.add_get("/ws", handle_websocket)
 
@@ -168,6 +173,29 @@ async def handle_clips(request: web.Request) -> web.Response:
     )
 
 
+#: Clip names are produced by :class:`FrameRecorder` and by nothing else, so the
+#: route accepts exactly that shape.  Anything else is refused instead of being
+#: joined onto the recordings directory -- a name is user input, and joining it
+#: is how a preview endpoint becomes a file-disclosure bug.
+_CLIP_NAME = re.compile(r"^\d{8}_\d{6}$")
+
+
+async def handle_clip_frame(request: web.Request) -> web.Response:
+    session: StreamSession = request.app[SESSION]
+    clip = request.match_info["clip"]
+    frame = request.match_info["frame"]
+    if not _CLIP_NAME.match(clip) or not frame.isdigit():
+        raise web.HTTPNotFound()
+
+    path = Path(session.record_dir) / f"{clip}_{int(frame):06d}.jpg"
+    if not path.is_file():
+        raise web.HTTPNotFound()
+
+    return web.FileResponse(
+        path, headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+    )
+
+
 # --------------------------------------------------------------------------
 # MJPEG stream
 # --------------------------------------------------------------------------
@@ -228,6 +256,33 @@ async def handle_config(request: web.Request) -> web.Response:
         session.update_config(
             bitrate=body.get("bitrate"), gop_size=body.get("gop_size")
         )
+    except ValueError as exc:
+        raise web.HTTPBadRequest(text=str(exc))
+
+    return web.json_response(session.status())
+
+
+async def handle_motion(request: web.Request) -> web.Response:
+    """Confine motion detection to a region and/or choose how eager it is.
+
+    Both settings answer the same question -- what should count as an event --
+    so they share one endpoint and one round trip.  A key that is present but
+    ``null`` means "clear", which is different from omitting the key, so the
+    body is inspected rather than read with defaults.
+    """
+    session: StreamSession = request.app[SESSION]
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001
+        raise web.HTTPBadRequest(text="expected a JSON body")
+    if not isinstance(body, dict):
+        raise web.HTTPBadRequest(text="expected a JSON object")
+
+    try:
+        if "roi" in body:
+            session.set_roi(body["roi"])
+        if "sensitivity" in body:
+            session.set_motion_sensitivity(body["sensitivity"])
     except ValueError as exc:
         raise web.HTTPBadRequest(text=str(exc))
 
