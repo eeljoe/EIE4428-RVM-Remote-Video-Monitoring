@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RVM &middot; Remote Video Monitor</title>
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<header class="bar">
+  <h1>RVM <span class="sub">Remote Video Monitor &middot; EIE4428</span></h1>
+  <div class="status-pill" id="conn"><span class="dot"></span><span id="conn-text">connecting</span></div>
+</header>
+
+<main class="layout">
+  <section class="viewer">
+    <div class="stage">
+      <img id="stream" src="/api/stream.mjpg" alt="Live camera feed" />
+      <div class="alarm" id="alarm">MOTION DETECTED</div>
+      <div class="overlay" id="overlay-bottom">
+        <span id="src-label">source</span>
+        <span id="view-label">camera</span>
+        <span id="time-label">--:--:--</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <label>Target bitrate
+        <select id="bitrate">
+          <option value="200000">200 kbps</option>
+          <option value="600000">600 kbps</option>
+          <option value="1200000" selected>1.2 Mbps</option>
+          <option value="3000000">3 Mbps</option>
+          <option value="6000000">6 Mbps</option>
+        </select>
+      </label>
+      <button id="apply">Apply</button>
+      <button id="view-source" class="toggle active">Camera</button>
+      <button id="view-decoded" class="toggle">Decoded (RVM1)</button>
+      <button id="snapshot">Save snapshot</button>
+      <button id="record">Start recording</button>
+      <button id="metrics">Export metrics</button>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <h2>Stream</h2>
+    <dl class="metrics">
+      <div><dt>Resolution</dt><dd id="m-res">&mdash;</dd></div>
+      <div><dt>Frame rate</dt><dd id="m-fps">&mdash;</dd></div>
+      <div><dt>Video bitrate</dt><dd id="m-bitrate">&mdash;</dd></div>
+      <div><dt>QP</dt><dd id="m-qp">&mdash;</dd></div>
+      <div><dt>PSNR</dt><dd id="m-psnr">&mdash;</dd></div>
+      <div><dt>Codec</dt><dd id="m-codec">RVM1 &middot; H.264-style hybrid</dd></div>
+    </dl>
+
+    <h2>Transport</h2>
+    <dl class="metrics">
+      <div><dt>Packets sent</dt><dd id="m-pkts">&mdash;</dd></div>
+      <div><dt>Pictures</dt><dd id="m-pics">&mdash;</dd></div>
+      <div><dt>Packet loss</dt><dd id="m-loss">&mdash;</dd></div>
+      <div><dt>Jitter</dt><dd id="m-jitter">&mdash;</dd></div>
+      <div><dt>Viewers</dt><dd id="m-clients">&mdash;</dd></div>
+    </dl>
+
+    <h2>Analysis</h2>
+    <dl class="metrics">
+      <div><dt>Motion</dt><dd id="m-motion">&mdash;</dd></div>
+      <div><dt>Faces</dt><dd id="m-faces">&mdash;</dd></div>
+      <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
+    </dl>
+
+    <h2>Bitrate</h2>
+    <canvas id="spark" width="260" height="60"></canvas>
+  </aside>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
