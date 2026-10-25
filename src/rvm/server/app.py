@@ -184,7 +184,7 @@ async def handle_clip_frame(request: web.Request) -> web.Response:
     session: StreamSession = request.app[SESSION]
     clip = request.match_info["clip"]
     frame = request.match_info["frame"]
-    if not _CLIP_NAME.match(clip) or not frame.isdigit():
+    if not _CLIP_NAME.match(clip) or not (frame.isascii() and frame.isdigit()):
         raise web.HTTPNotFound()
 
     path = Path(session.record_dir) / f"{clip}_{int(frame):06d}.jpg"

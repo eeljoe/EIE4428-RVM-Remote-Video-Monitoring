@@ -64,7 +64,9 @@ def sensitivity_settings(name: str) -> dict[str, float]:
     """
     try:
         return dict(SENSITIVITY_LEVELS[name])
-    except KeyError:
+    except (KeyError, TypeError):
+        # An unhashable value (a list, say) fails the lookup with TypeError
+        # rather than KeyError; both mean "not one of the levels".
         raise ValueError(
             f"unknown sensitivity {name!r}; expected one of "
             f"{sorted(SENSITIVITY_LEVELS)}"
@@ -199,14 +201,19 @@ class MotionDetector:
         frame = self._validate(luma).astype(np.float64)
         bounds = self._bounds(roi, frame.shape)
 
-        if self._background is None:
+        # Read the model into a local first.  The server can reset the
+        # detector from the HTTP handler while this runs in a worker thread;
+        # a local reference means the reset can only cause the *next* frame to
+        # re-learn, never a ``None`` arithmetic error in this one.
+        background = self._background
+        if background is None:
             # The very first frame defines the scene; there is nothing to
             # compare it against yet, so it is learnt silently.
             self._background = frame
             zeros = np.zeros(frame.shape, dtype=np.uint8)
             return MotionResult(0.0, False, zeros, None, 0)
 
-        difference = np.abs(frame - self._background)
+        difference = np.abs(frame - background)
         mask = (difference > self.sensitivity).astype(np.uint8)
 
         if bounds is not None:
@@ -231,9 +238,11 @@ class MotionDetector:
             self._alarm_active = False
 
         # Only adapt where nothing is happening, so a person standing in view
-        # is never slowly absorbed into the background.
+        # is never slowly absorbed into the background.  Rebound rather than
+        # updated in place: an in-place ``+=`` on a model a concurrent reset
+        # has already cleared would raise.
         if not self._alarm_active:
-            self._background += self.adapt_rate * (frame - self._background)
+            self._background = background + self.adapt_rate * (frame - background)
 
         rows = np.nonzero(mask.any(axis=1))[0]
         columns = np.nonzero(mask.any(axis=0))[0]

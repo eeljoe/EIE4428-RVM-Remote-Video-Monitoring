@@ -310,7 +310,13 @@ async function pollClips() {
 
 function renderClips(clips) {
   const list = $("clips");
-  const recent = clips.slice(-5).reverse();
+  // Only names the recorder could have produced reach the DOM: the panel is
+  // built with innerHTML, and a stray file dropped into the recordings folder
+  // must not be able to put markup on the operator's screen.
+  const recent = clips
+    .filter((clip) => /^\d{8}_\d{6}$/.test(clip.name))
+    .slice(-5)
+    .reverse();
   if (!recent.length) {
     list.innerHTML = '<li class="muted">No recording yet.</li>';
     return;
