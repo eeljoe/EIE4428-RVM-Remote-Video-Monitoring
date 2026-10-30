@@ -90,3 +90,111 @@ def regions_from_mask(mask: np.ndarray, min_area: int = 16) -> list[tuple[int, i
     ]
     regions.sort()
     return regions
+
+
+def _centre(box: tuple[int, int, int, int]) -> tuple[float, float]:
+    """The ``(row, column)`` centre of a ``(top, left, bottom, right)`` box."""
+    top, left, bottom, right = box
+    return (top + bottom) / 2.0, (left + right) / 2.0
+
+
+@dataclass
+class Track:
+    """One object followed across frames, in ``(top, left, bottom, right)`` boxes."""
+
+    id: int
+    bbox: tuple[int, int, int, int]
+    centroid: tuple[float, float]  # (row, column), pixel units
+    trail: list[tuple[float, float]] = field(default_factory=list)
+    frames: int = 1
+    missed: int = 0
+
+    def snapshot(self) -> dict:
+        """JSON-friendly view; points are emitted as ``[x, y]`` pixel pairs."""
+        return {
+            "id": self.id,
+            "bbox": [int(v) for v in self.bbox],
+            "centroid": [self.centroid[1], self.centroid[0]],
+            "trail": [[x, y] for y, x in self.trail],
+            "frames": self.frames,
+        }
+
+
+class CentroidTracker:
+    """Nearest-centroid association of detection boxes across frames.
+
+    ``max_distance`` is the furthest a box centre may move between frames and
+    still count as the same object -- beyond it, the detection starts a new
+    track.  ``max_missed`` is how many consecutive frames a track may go
+    unseen before expiring, which carries an identity through brief
+    occlusions.  ``trail_length`` bounds how much history each track draws.
+    """
+
+    def __init__(
+        self,
+        max_distance: float = 48.0,
+        max_missed: int = 5,
+        trail_length: int = 12,
+    ) -> None:
+        if max_distance <= 0:
+            raise ValueError(f"max_distance must be positive, got {max_distance}")
+        if max_missed < 0:
+            raise ValueError(f"max_missed must be >= 0, got {max_missed}")
+        if trail_length <= 0:
+            raise ValueError(f"trail_length must be positive, got {trail_length}")
+
+        self.max_distance = max_distance
+        self.max_missed = max_missed
+        self.trail_length = trail_length
+        self._tracks: dict[int, Track] = {}
+        self._next_id = 1
+
+    def update(self, boxes) -> list[Track]:
+        """Match detection ``boxes`` to tracks; return the ones seen now."""
+        detections = [(_centre(box), box) for box in boxes]
+        unmatched = set(range(len(detections)))
+
+        for track in self._tracks.values():
+            best_index, best_distance = None, self.max_distance
+            for index in unmatched:
+                row, column = detections[index][0]
+                distance = math.hypot(
+                    track.centroid[0] - row, track.centroid[1] - column
+                )
+                if distance <= best_distance:
+                    best_index, best_distance = index, distance
+
+            if best_index is None:
+                track.missed += 1
+            else:
+                track.centroid, track.bbox = detections[best_index]
+                track.frames += 1
+                track.missed = 0
+                track.trail.append(track.centroid)
+                del track.trail[: -self.trail_length]
+                unmatched.discard(best_index)
+
+        for index in unmatched:
+            centroid, box = detections[index]
+            self._tracks[self._next_id] = Track(
+                id=self._next_id,
+                bbox=box,
+                centroid=centroid,
+                trail=[centroid],
+            )
+            self._next_id += 1
+
+        expired = [
+            track_id
+            for track_id, track in self._tracks.items()
+            if track.missed > self.max_missed
+        ]
+        for track_id in expired:
+            del self._tracks[track_id]
+
+        return [track for track in self._tracks.values() if track.missed == 0]
+
+    def reset(self) -> None:
+        """Forget every track; the next frame starts numbering from one."""
+        self._tracks.clear()
+        self._next_id = 1
