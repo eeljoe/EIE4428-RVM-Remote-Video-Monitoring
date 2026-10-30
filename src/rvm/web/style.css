@@ -131,6 +131,19 @@ select:focus-visible, button:focus-visible, a:focus-visible {
 }
 .bbox { border-color: var(--alarm); background: #ff654d18; }
 
+/* Object tracking: an ID tag on each mover plus a fading dotted trail of its
+ * recent positions.  Same percentage anchoring as the zone and motion boxes. */
+.tracks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.track-dot {
+  position: absolute; width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px #000;
+}
+.track-tag {
+  position: absolute; transform: translate(-50%, -140%); padding: 1px 5px;
+  border: 1px solid var(--control-line); background: #000b;
+  color: var(--accent); font: 700 9px var(--mono); letter-spacing: .08em;
+}
+
 .hint { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; color: var(--muted); font: 11px var(--mono); }
 .hint-key { flex: none; padding: 3px 6px; border: 1px solid var(--control-line); color: var(--accent); font-size: 9px; letter-spacing: .08em; }
 

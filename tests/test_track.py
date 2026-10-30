@@ -279,3 +279,15 @@ async def test_the_status_endpoint_carries_tracks(client):
 
     assert len(payload["tracks"]) == 1
     assert payload["tracks"][0]["id"] == 1
+
+
+async def test_the_page_has_a_track_overlay(client):
+    page = await (await client[0].get("/")).text()
+
+    assert 'id="tracks"' in page
+
+
+async def test_the_client_script_draws_tracks(client):
+    script = await (await client[0].get("/static/app.js")).text()
+
+    assert "tracks" in script
