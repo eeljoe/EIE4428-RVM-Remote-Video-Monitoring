@@ -106,7 +106,7 @@ SUMMARY = [
     "tuned, which is what the project is meant to teach. It also means the system "
     "carries no external codec dependency and runs anywhere Python runs.",
 
-    "The system was developed test-first: 400 automated tests cover the colour "
+    "The system was developed test-first: 403 automated tests cover the colour "
     "transform, the bit-level syntax, the transform and quantiser, the entropy "
     "coder, motion estimation, rate control, the complete encode/decode pair, the "
     "transport layer and the HTTP/WebSocket server. Tests were written before each "
@@ -474,7 +474,7 @@ REFERENCES = [
     "vectorised transform, quantisation and motion estimation.",
 
     "pytest documentation, https://docs.pytest.org/ -- the test framework used "
-    "for the 400 automated tests.",
+    "for the 403 automated tests.",
 
     "EIE4428 Multimedia Communications lecture notes, Units 1 to 4, HK PolyU, "
     "2026: multimedia fundamentals and QoS targets, scalable coding, error and "

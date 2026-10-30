@@ -128,6 +128,10 @@ class CentroidTracker:
     track.  ``max_missed`` is how many consecutive frames a track may go
     unseen before expiring, which carries an identity through brief
     occlusions.  ``trail_length`` bounds how much history each track draws.
+
+    Matching is greedy in track order, so two objects crossing can trade
+    identities -- accepted: Hungarian assignment buys correctness a classroom
+    demo will not notice, for twice the code.
     """
 
     def __init__(
@@ -149,12 +153,15 @@ class CentroidTracker:
         self._tracks: dict[int, Track] = {}
         self._next_id = 1
 
-    def update(self, boxes) -> list[Track]:
+    def update(self, boxes: list[tuple[int, int, int, int]]) -> list[Track]:
         """Match detection ``boxes`` to tracks; return the ones seen now."""
         detections = [(_centre(box), box) for box in boxes]
         unmatched = set(range(len(detections)))
 
-        for track in self._tracks.values():
+        # Iterate over a snapshot, not the live dict: the HTTP handler can
+        # reset the tracker from another thread while this runs in the
+        # encode worker, exactly like the background model in the detector.
+        for track in list(self._tracks.values()):
             best_index, best_distance = None, self.max_distance
             for index in unmatched:
                 row, column = detections[index][0]
@@ -186,15 +193,21 @@ class CentroidTracker:
 
         expired = [
             track_id
-            for track_id, track in self._tracks.items()
+            for track_id, track in list(self._tracks.items())
             if track.missed > self.max_missed
         ]
         for track_id in expired:
-            del self._tracks[track_id]
+            # ``pop`` rather than ``del``: a concurrent reset may already
+            # have rebound the dict, in which case the id is gone anyway.
+            self._tracks.pop(track_id, None)
 
-        return [track for track in self._tracks.values() if track.missed == 0]
+        return [track for track in list(self._tracks.values()) if track.missed == 0]
 
     def reset(self) -> None:
-        """Forget every track; the next frame starts numbering from one."""
-        self._tracks.clear()
+        """Forget every track; the next frame starts numbering from one.
+
+        Rebinding rather than clearing: an ``update`` iterating the old dict
+        on the encode thread can then never observe the reset mid-pass.
+        """
+        self._tracks = {}
         self._next_id = 1

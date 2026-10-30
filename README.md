@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 400 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 403 tests, ~10s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -138,6 +138,7 @@ src/rvm/
               stats.py        RFC 3550 jitter recursion + delivery feedback
   analysis/   quality.py      PSNR, SSIM
               detect.py       MotionDetector, FaceDetector
+              track.py        regions_from_mask, CentroidTracker
   server/     source.py       CameraSource, SyntheticSource
               session.py      StreamSession — one encode, many viewers
               recorder.py     FrameRecorder — timestamped JPEG clips

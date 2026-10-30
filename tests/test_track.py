@@ -74,6 +74,23 @@ def test_regions_come_back_in_scan_order():
     assert regions[1] == (60, 60, 70, 70)
 
 
+def test_two_runs_merged_through_a_wider_row_above():
+    """A U or arch shape: same-row runs joined only via the previous row."""
+    mask = np.zeros((HEIGHT, WIDTH), dtype=np.uint8)
+    mask[10, 10:30] = 1  # one wide run on the upper row
+    mask[11, 10:14] = 1  # two separated runs on the lower row
+    mask[11, 26:30] = 1
+
+    regions = regions_from_mask(mask, min_area=1)
+
+    assert regions == [(10, 10, 12, 30)]
+
+
+def test_a_non_2d_mask_is_rejected():
+    with pytest.raises(ValueError, match="2-D mask"):
+        regions_from_mask(np.zeros((4, 4, 3), dtype=np.uint8))
+
+
 # --------------------------------------------------------------------------
 # Regions -> tracks
 # --------------------------------------------------------------------------
@@ -251,13 +268,26 @@ async def test_changing_the_zone_forgets_the_tracks():
     assert s.status()["tracks"] == []
 
 
+async def test_changing_the_sensitivity_forgets_the_tracks():
+    s = session()
+    s.inject_frame(dark_scene())
+    await s.run_once()
+    s.inject_frame(with_square(dark_scene(), 30, 40))
+    await s.run_once()
+    assert s.status()["tracks"]
+
+    s.set_motion_sensitivity("high")
+
+    assert s.status()["tracks"] == []
+
+
 # --------------------------------------------------------------------------
 # HTTP surface
 # --------------------------------------------------------------------------
 
 
 @pytest.fixture
-async def client(tmp_path):
+async def client():
     s = session()
     app = create_app(session=s)
     test_client = TestClient(TestServer(app))
