@@ -29,7 +29,7 @@ EIE4428-RVM/
 │  ├─ server/     source.py, session.py, recorder.py, app.py
 │  └─ web/        index.html, app.js, style.css
 │
-├─ tests/                       373 tests (pytest)
+├─ tests/                       400 tests (pytest)
 ├─ tools/                       report builder, benchmark, block-diagram generator, packaging script
 │
 └─ docs/
@@ -100,7 +100,7 @@ bounding boxes, and the recorded-clip list.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest          # 373 tests, about 10 s
+.\.venv\Scripts\python.exe -m pytest          # 400 tests, about 10 s
 .\.venv\Scripts\python.exe verify_system.py   # end-to-end live check
 .\.venv\Scripts\python.exe tools\benchmark.py # encoder measurement
 ```
