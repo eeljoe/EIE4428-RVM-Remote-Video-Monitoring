@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 373 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 403 tests, ~10s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -53,6 +53,7 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Rate control** | TM5 virtual buffer, `Q = (d/r) × 31`, H.264 ±2 QP limiter, bpp starting-point model |
 | **Transport** | RTP packetisation with marker bit, adaptive jitter buffer, RFC 3550 jitter recursion |
 | **Analysis** | Motion detection with alarm + bounding box, Haar face detection, PSNR / SSIM |
+| **Tracking** | Each moving object keeps an ID and a fading trail across frames — the motion mask is split into connected regions and matched by nearest centroid |
 | **Detection zone** | Drag a box on the picture to watch only that area; three sensitivity levels. The zone lives on the server, so a reload or a second viewer sees the same one |
 | **Clips** | Recording list with a thumbnail of each clip's first frame, served from `/api/clips/<clip>/<n>.jpg` |
 | **Recording** | Timestamped colour JPEG clips written off the live path |
@@ -137,6 +138,7 @@ src/rvm/
               stats.py        RFC 3550 jitter recursion + delivery feedback
   analysis/   quality.py      PSNR, SSIM
               detect.py       MotionDetector, FaceDetector
+              track.py        regions_from_mask, CentroidTracker
   server/     source.py       CameraSource, SyntheticSource
               session.py      StreamSession — one encode, many viewers
               recorder.py     FrameRecorder — timestamped JPEG clips

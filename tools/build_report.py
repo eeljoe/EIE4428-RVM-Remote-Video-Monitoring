@@ -106,7 +106,7 @@ SUMMARY = [
     "tuned, which is what the project is meant to teach. It also means the system "
     "carries no external codec dependency and runs anywhere Python runs.",
 
-    "The system was developed test-first: 373 automated tests cover the colour "
+    "The system was developed test-first: 403 automated tests cover the colour "
     "transform, the bit-level syntax, the transform and quantiser, the entropy "
     "coder, motion estimation, rate control, the complete encode/decode pair, the "
     "transport layer and the HTTP/WebSocket server. Tests were written before each "
@@ -127,6 +127,10 @@ SPECIAL_FEATURES = [
     "the region is applied on the server, so every viewer inherits it.",
     "Face detection using an OpenCV Haar cascade, which degrades gracefully when "
     "the cascade data is unavailable.",
+    "Object tracking: the motion mask is split into connected regions and each "
+    "region keeps an identity across frames by nearest-centroid association, so "
+    "a walker appears as one labelled object with a fading trail rather than a "
+    "blur of changing pixels.",
     "Two live views of the same moment: the raw camera picture, and the picture a "
     "receiver reconstructs from the coded bitstream. Switching between them "
     "during a demonstration shows the codec's own distortion instead of "
@@ -363,7 +367,9 @@ UI_DESIGN = [
     "survives a page reload and a second viewer sees the same zone. Movement inside "
     "the zone is outlined in red, movement outside it is ignored. A sensitivity "
     "selector and a Clear zone button sit beside the bitrate control, and a Clips "
-    "panel lists the most recent recordings with a thumbnail of their first frame.",
+    "panel lists the most recent recordings with a thumbnail of their first frame. "
+    "Each moving object carries an ID tag and a fading dotted trail of its recent "
+    "positions, so the operator can see where it came from at a glance.",
 
     "The metrics panel is grouped into three blocks. Stream shows resolution, "
     "measured frame rate, bitrate, the current quantiser parameter, PSNR and the "
@@ -468,7 +474,7 @@ REFERENCES = [
     "vectorised transform, quantisation and motion estimation.",
 
     "pytest documentation, https://docs.pytest.org/ -- the test framework used "
-    "for the 373 automated tests.",
+    "for the 403 automated tests.",
 
     "EIE4428 Multimedia Communications lecture notes, Units 1 to 4, HK PolyU, "
     "2026: multimedia fundamentals and QoS targets, scalable coding, error and "
