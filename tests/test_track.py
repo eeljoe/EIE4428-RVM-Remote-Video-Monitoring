@@ -8,8 +8,11 @@ those boxes across frames keeps each object's identity and trail.
 
 import numpy as np
 import pytest
+from aiohttp.test_utils import TestClient, TestServer
 
 from rvm.analysis.track import CentroidTracker, regions_from_mask
+from rvm.server.app import create_app
+from rvm.server.session import StreamSession
 
 WIDTH, HEIGHT = 160, 112
 
@@ -183,3 +186,96 @@ def test_two_objects_tracked_independently():
     by_id = {track.id: track for track in tracks}
     assert by_id[1].bbox == (12, 14, 22, 24)
     assert by_id[2].bbox == (62, 96, 72, 106)
+
+
+# --------------------------------------------------------------------------
+# Session level
+# --------------------------------------------------------------------------
+
+
+def session():
+    return StreamSession(width=WIDTH, height=HEIGHT, fps=10.0, bitrate=300_000)
+
+
+def dark_scene():
+    return np.full((HEIGHT, WIDTH, 3), 40, dtype=np.uint8)
+
+
+def with_square(frame, top, left, size=16, value=230):
+    frame = frame.copy()
+    frame[top : top + size, left : left + size] = value
+    return frame
+
+
+async def test_status_lists_no_tracks_before_any_frame():
+    assert session().status()["tracks"] == []
+
+
+async def test_an_intruder_gets_a_track_with_a_box_and_a_trail():
+    s = session()
+    s.inject_frame(dark_scene())
+    await s.run_once()  # the first frame only teaches the background
+
+    for _ in range(3):
+        s.inject_frame(with_square(dark_scene(), 30, 40))
+        await s.run_once()
+
+    (track,) = s.status()["tracks"]
+    assert track["id"] == 1
+    top, left, bottom, right = track["bbox"]
+    # Erosion shrinks the mask, so the box sits strictly inside the square.
+    assert 30 <= top and bottom <= 46 and 40 <= left and right <= 56
+    assert bottom > top and right > left
+    assert len(track["trail"]) == 3
+
+
+async def test_a_still_scene_reports_no_tracks():
+    s = session()
+    for _ in range(3):
+        s.inject_frame(dark_scene())
+        await s.run_once()
+
+    assert s.status()["tracks"] == []
+
+
+async def test_changing_the_zone_forgets_the_tracks():
+    s = session()
+    s.inject_frame(dark_scene())
+    await s.run_once()
+    s.inject_frame(with_square(dark_scene(), 30, 40))
+    await s.run_once()
+    assert s.status()["tracks"]
+
+    s.set_roi((0.0, 0.0, 0.5, 0.5))
+
+    assert s.status()["tracks"] == []
+
+
+# --------------------------------------------------------------------------
+# HTTP surface
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+async def client(tmp_path):
+    s = session()
+    app = create_app(session=s)
+    test_client = TestClient(TestServer(app))
+    await test_client.start_server()
+    try:
+        yield test_client, s
+    finally:
+        await test_client.close()
+
+
+async def test_the_status_endpoint_carries_tracks(client):
+    test_client, s = client
+    s.inject_frame(dark_scene())
+    await s.run_once()
+    s.inject_frame(with_square(dark_scene(), 30, 40))
+    await s.run_once()
+
+    payload = await (await test_client.get("/api/status")).json()
+
+    assert len(payload["tracks"]) == 1
+    assert payload["tracks"][0]["id"] == 1
