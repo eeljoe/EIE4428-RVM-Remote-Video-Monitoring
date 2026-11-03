@@ -45,6 +45,7 @@ function render(s) {
   setText("m-roi", s.roi ? "custom zone" : "whole picture");
   drawRegion(s);
   drawMotionBox(s);
+  drawTracks(s);
   if (s.motion_sensitivity) $("sensitivity").value = s.motion_sensitivity;
 
   history.bitrate.push(s.bitrate ?? 0);
@@ -79,6 +80,38 @@ function drawMotionBox(s) {
   }
   const [top, left, bottom, right] = s.bbox;
   placeBox(node, left / s.width, top / s.height, right / s.width, bottom / s.height);
+}
+
+/* Each tracked object gets an ID tag at its centre and a fading dotted trail
+ * of where it has been, in the same percentage coordinates as the zone box. */
+function drawTracks(s) {
+  const box = $("tracks");
+  const nodes = [];
+  const w = s.width || 1;
+  const h = s.height || 1;
+
+  for (const track of s.tracks || []) {
+    const trail = track.trail || [];
+    trail.forEach((point, i) => {
+      const dot = document.createElement("i");
+      dot.className = "track-dot";
+      dot.style.left = ((point[0] / w) * 100).toFixed(2) + "%";
+      dot.style.top = ((point[1] / h) * 100).toFixed(2) + "%";
+      dot.style.opacity = (0.2 + (0.8 * (i + 1)) / trail.length).toFixed(2);
+      nodes.push(dot);
+    });
+
+    if (track.centroid) {
+      const tag = document.createElement("b");
+      tag.className = "track-tag";
+      tag.textContent = "T" + track.id;
+      tag.style.left = ((track.centroid[0] / w) * 100).toFixed(2) + "%";
+      tag.style.top = ((track.centroid[1] / h) * 100).toFixed(2) + "%";
+      nodes.push(tag);
+    }
+  }
+
+  box.replaceChildren(...nodes);
 }
 
 function drawSpark() {

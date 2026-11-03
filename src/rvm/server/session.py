@@ -30,6 +30,7 @@ from pathlib import Path
 import numpy as np
 
 from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
+from ..analysis.track import CentroidTracker, regions_from_mask
 from ..analysis.quality import psnr
 from ..codec.video import VideoEncoder
 from ..core.colorspace import rgb_to_ycbcr, to_planes
@@ -112,6 +113,7 @@ class StreamSession:
         self.roi: tuple[float, float, float, float] | None = None
         self.motion_sensitivity = "medium"
         self.face_detector = FaceDetector()
+        self.tracker = CentroidTracker()
 
         self.stats = StreamStats(window_seconds=4.0)
         self.recorder: FrameRecorder | None = None
@@ -124,6 +126,7 @@ class StreamSession:
         self._decoded_jpeg: bytes | None = None
         self._motion = None
         self._faces = None
+        self._tracks: list = []
         self._psnr: float | None = None
         self._injected: np.ndarray | None = None
         self._lock = asyncio.Lock()
@@ -185,11 +188,15 @@ class StreamSession:
             MotionDetector._bounds(roi, (self.height, self.width))
             self.roi = tuple(float(value) for value in roi)
         self.motion_detector.reset()
+        self.tracker.reset()
+        self._tracks = []
 
     def set_motion_sensitivity(self, name: str) -> None:
         """Pick how eager the motion alarm is: ``low``, ``medium`` or ``high``."""
         self.motion_detector.configure(**sensitivity_settings(name))
         self.motion_sensitivity = name
+        self.tracker.reset()
+        self._tracks = []
 
     @property
     def recording(self) -> bool:
@@ -239,6 +246,7 @@ class StreamSession:
 
         self._motion = self.motion_detector.update(luma, roi=self.roi)
         self._faces = self.face_detector.detect(luma)
+        self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
 
         encoded = self.encoder.encode(frame)
 
@@ -358,6 +366,7 @@ class StreamSession:
                 "roi": list(self.roi) if self.roi else None,
                 "motion_sensitivity": self.motion_sensitivity,
                 "motion": motion,
+                "tracks": [track.snapshot() for track in self._tracks],
             }
         )
         return snapshot

@@ -4,21 +4,26 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RVM &middot; Remote Video Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23080c0e'/%3E%3Cpath d='M7 8h18v16H7z' fill='none' stroke='%2363dfd0' stroke-width='2'/%3E%3Cpath d='M11 12h5v8h-5z' fill='%2363dfd0'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 <header class="bar">
-  <h1>RVM <span class="sub">Remote Video Monitor &middot; EIE4428</span></h1>
-  <div class="status-pill" id="conn"><span class="dot"></span><span id="conn-text">connecting</span></div>
+  <h1><span class="wordmark">RVM</span><span class="sub">Remote Video Monitor <span class="course">EIE4428</span></span></h1>
+  <div class="bar-right">
+    <span class="unit-label">FIELD MONITOR / 01</span>
+    <div class="status-pill" id="conn" role="status" aria-live="polite"><span class="dot"></span><span id="conn-text">connecting</span></div>
+  </div>
 </header>
 
 <main class="layout">
-  <section class="viewer">
-    <div class="stage" id="stage">
-      <img id="stream" src="/api/stream.mjpg" alt="Live camera feed" />
+  <section class="viewer" aria-label="Live monitor and controls">
+    <div class="stage" id="stage" data-channel="CAM 01">
+      <img id="stream" src="/api/stream.mjpg" alt="Live camera feed" aria-describedby="zone-help" />
       <div class="roi" id="roi" hidden></div>
       <div class="bbox" id="bbox" hidden></div>
-      <div class="alarm" id="alarm">MOTION DETECTED</div>
+      <div class="tracks" id="tracks" aria-hidden="true"></div>
+      <div class="alarm" id="alarm" role="alert" aria-live="assertive">MOTION DETECTED</div>
       <div class="overlay" id="overlay-bottom">
         <span id="src-label">source</span>
         <span id="view-label">camera</span>
@@ -27,6 +32,7 @@
     </div>
 
     <div class="controls">
+      <div class="control-cluster" role="group" aria-label="Stream configuration">
       <label>Target bitrate
         <select id="bitrate">
           <option value="200000">200 kbps</option>
@@ -45,18 +51,24 @@
         </select>
       </label>
       <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
+      </div>
+      <div class="control-cluster" role="group" aria-label="Picture views">
       <button id="view-source" class="toggle active">Camera</button>
       <button id="view-decoded" class="toggle">Decoded (RVM1)</button>
+      </div>
+      <div class="control-cluster" role="group" aria-label="Capture and export">
       <button id="snapshot">Save snapshot</button>
       <button id="record">Start recording</button>
       <button id="metrics">Export metrics</button>
+      </div>
     </div>
-    <p class="hint">
-      Drag on the picture to watch only that area &mdash; movement elsewhere stops raising the alarm.
+    <p class="hint" id="zone-help">
+      <span class="hint-key">DRAG TO ZONE</span>
+      <span>Watch only that area — movement elsewhere stops raising the alarm.</span>
     </p>
   </section>
 
-  <aside class="panel">
+  <aside class="panel" aria-label="Live telemetry and recorded clips">
     <h2>Stream</h2>
     <dl class="metrics">
       <div><dt>Resolution</dt><dd id="m-res">&mdash;</dd></div>
@@ -85,7 +97,7 @@
     </dl>
 
     <h2>Bitrate</h2>
-    <canvas id="spark" width="260" height="60"></canvas>
+    <canvas id="spark" width="260" height="60" role="img" aria-label="Recent video bitrate history"></canvas>
 
     <h2>Clips</h2>
     <ul class="clips" id="clips">

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import re
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -50,6 +51,19 @@ async def test_index_page_is_served(client):
     assert "Remote Video Monitor" in await response.text()
 
 
+async def test_connection_and_alarm_expose_live_regions(client):
+    html = await (await client.get("/")).text()
+
+    for element_id, role, live in (
+        ("conn", "status", "polite"),
+        ("alarm", "alert", "assertive"),
+    ):
+        match = re.search(rf'<[^>]+\bid="{element_id}"[^>]*>', html)
+        assert match is not None, f"missing #{element_id}"
+        assert f'role="{role}"' in match.group(0)
+        assert f'aria-live="{live}"' in match.group(0)
+
+
 async def test_stylesheet_is_served(client):
     response = await client.get("/static/style.css")
 
@@ -57,11 +71,43 @@ async def test_stylesheet_is_served(client):
     assert "layout" in await response.text()
 
 
+async def test_stylesheet_supports_focus_reduced_motion_and_mobile(client):
+    css = await (await client.get("/static/style.css")).text()
+
+    assert ":focus-visible" in css
+    assert "@media (prefers-reduced-motion: reduce)" in css
+    assert re.search(
+        r"@media \(max-width: 900px\)[\s\S]*?grid-template-columns:\s*1fr",
+        css,
+    )
+    assert "@media (max-width: 560px)" in css
+    assert re.search(r"min-height:\s*40px", css)
+
+
+async def test_operator_page_loads_no_remote_frontend_assets(client):
+    html = await (await client.get("/")).text()
+    css = await (await client.get("/static/style.css")).text()
+
+    assert not re.search(r'(?:src|href)=["\'](?:https?:)?//', html)
+    assert not re.search(r'url\(\s*["\']?(?:https?:)?//', css)
+    assert not re.search(r'@import\s+["\'](?:https?:)?//', css)
+
+
 async def test_client_script_is_served(client):
     response = await client.get("/static/app.js")
 
     assert response.status == 200
     assert "connect" in await response.text()
+
+
+async def test_page_preserves_the_client_dom_contract(client):
+    html = await (await client.get("/")).text()
+    script = await (await client.get("/static/app.js")).text()
+
+    referenced = set(re.findall(r'(?:\$|setText)\(\s*"([\w-]+)"', script))
+    present = set(re.findall(r'\bid="([^"]+)"', html))
+
+    assert referenced <= present, f"missing DOM ids: {sorted(referenced - present)}"
 
 
 # --------------------------------------------------------------------------
