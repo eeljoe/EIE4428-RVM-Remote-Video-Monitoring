@@ -235,4 +235,3 @@ class AudioCapture:
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
             self._pyaudio = None
-

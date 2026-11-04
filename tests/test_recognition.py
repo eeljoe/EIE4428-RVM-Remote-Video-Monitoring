@@ -254,4 +254,3 @@ def test_a_face_inside_the_threshold_is_reported_with_its_name():
 
     assert name == "joe"
     assert confidence == pytest.approx(0.6)
-

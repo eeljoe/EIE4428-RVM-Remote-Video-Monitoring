@@ -327,4 +327,3 @@ async def test_the_client_script_draws_tracks(client):
     script = await (await client[0].get("/static/app.js")).text()
 
     assert "tracks" in script
-

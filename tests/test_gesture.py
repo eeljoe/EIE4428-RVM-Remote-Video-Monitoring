@@ -231,4 +231,3 @@ def test_every_named_pose_reports_more_confidence_than_an_unknown_one():
     for gesture in GestureType:
         if gesture is not GestureType.UNKNOWN:
             assert recognizer.CONFIDENCE[gesture] > unknown
-
