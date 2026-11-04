@@ -436,7 +436,7 @@ CONCLUSIONS = [
 
     "Honest limitations are recorded rather than hidden. Audio is captured and "
     "analysed locally for acoustic events, but it is not coded or streamed, so the "
-    "remote station receives video only. The custom codec is a teaching "
+    "remote station does not receive audio. The custom codec is a teaching "
     "implementation: it "
     "is considerably less efficient than H.264, which has three decades of "
     "additional refinement such as larger transform blocks, multiple reference "
