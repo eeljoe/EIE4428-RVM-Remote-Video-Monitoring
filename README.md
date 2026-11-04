@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 403 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 476 tests, ~15s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -59,6 +59,35 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Recording** | Timestamped colour JPEG clips written off the live path |
 | **Concurrency** | Unlimited viewers; one encode feeds all of them |
 | **Two views** | *Camera* shows the raw picture, *Decoded (RVM1)* shows what a receiver reconstructs from the bitstream — the codec's own distortion, visible rather than claimed |
+
+### Optional analysis
+
+Four analysers beyond the core requirements. They are opt-in — `run_server.py`
+enables them, `--no-analysis` turns them off — and each one reports itself
+unavailable rather than breaking the stream when a dependency or model file is
+missing.
+
+| | | Depends on |
+|---|---|---|
+| **Face identification** | MediaPipe landmarks compared against a small known-face database | `mediapipe` |
+| **Expression** | Seven weighted sums over blendshapes (happy, sad, angry, surprise, fear, disgust, neutral) | `mediapipe` |
+| **Gestures** | Open palm, fist, pointing, peace, thumbs up/down, OK from 21 hand landmarks | `mediapipe` |
+| **Acoustic events** | Loud sound, speech, silence, gunshot, glass break, alarm from RMS / crossing rate / spectral centroid | `pyaudio` |
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt   # incl. the optional extras
+```
+
+The analysers run on a 0.5 s cadence rather than per picture, because one
+FaceLandmarker call costs 7–50 ms against a few milliseconds for encoding a
+frame: recognition would halve the frame rate to refresh a dashboard panel.
+Measured at 320×240: 11.3 fps without analysis, 10.0 fps with it. Models load in
+a background thread, so the first picture is not held up.
+
+Every result carries a state (`disabled` / `unavailable` / `error` /
+`no-faces` / `mediapipe`), so "switched off", "broken" and "working on an empty
+scene" look different on the dashboard. Details, costs and limitations:
+[`docs/FEATURES.md`](docs/FEATURES.md).
 
 ### Measured results
 
@@ -115,9 +144,18 @@ API latency above is the evidence that it does not.
 | `GET` | `/api/snapshot.jpg` | Single JPEG snapshot (same `view` parameter) |
 | `GET` | `/api/metrics` | Full telemetry as JSON |
 | `GET` | `/api/clips` | List recorded clips |
+| `GET` | `/api/clips/<clip>/<n>.jpg` | Frame *n* of a stored clip |
 | `POST` | `/api/config` | Set target bit rate without restarting the stream |
+| `POST` | `/api/motion` | Set the detection zone and sensitivity |
 | `POST` | `/api/record` | Start / stop recording |
-| `GET` | `/ws` | WebSocket telemetry push |
+| `GET` | `/api/features` | Which optional analysers are enabled / available |
+| `GET` | `/api/tracks` | Tracked objects with persistent IDs |
+| `GET` | `/api/faces/identities` | Faces matched against the known-face database |
+| `GET` | `/api/emotions` | Classified facial expressions |
+| `GET` | `/api/gestures` | Classified hand gestures |
+| `GET` | `/api/audio/events` | Recent acoustic events |
+| `POST` | `/api/audio/control` | Start / stop microphone monitoring |
+| `GET` | `/ws` | WebSocket telemetry push (analysis results included) |
 
 ---
 
@@ -139,11 +177,17 @@ src/rvm/
   analysis/   quality.py      PSNR, SSIM
               detect.py       MotionDetector, FaceDetector
               track.py        regions_from_mask, CentroidTracker
+              recognition.py  FaceRecognizer, EmotionRecognizer (MediaPipe)
+              gesture.py      GestureRecognizer (MediaPipe HandLandmarker)
+              models.py       locate the .task model bundles
+  audio/      capture.py      AudioCapture — microphone in a worker thread
+              analysis.py     AudioAnalyzer — acoustic event rules
   server/     source.py       CameraSource, SyntheticSource
               session.py      StreamSession — one encode, many viewers
               recorder.py     FrameRecorder — timestamped JPEG clips
               app.py          aiohttp REST + WebSocket server
   web/        index.html, app.js, style.css
+models/       face_landmarker.task, hand_landmarker.task, haarcascades/
 ```
 
 ---
