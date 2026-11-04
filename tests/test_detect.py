@@ -341,3 +341,26 @@ def test_recorder_stamps_each_file_with_its_start_time(tmp_path):
     files = list((tmp_path / "clips").glob("*.jpg"))
 
     assert files[0].name.startswith("20260101_120000")
+
+# --------------------------------------------------------------------------
+# The cascade the detector runs
+# --------------------------------------------------------------------------
+
+
+def test_the_face_cascade_ships_with_the_repository():
+    """OpenCV 5 wheels carry no cascades, so the repository must ship one.
+
+    Without it the detector reports "unavailable" -- zero faces, no error --
+    and the face-detection requirement silently stops being delivered.
+    """
+    detector = FaceDetector()
+
+    assert detector.available is True, "the repository must ship its cascade"
+
+
+def test_face_detection_runs_on_a_plain_scene_without_reporting_a_failure():
+    detector = FaceDetector()
+
+    result = detector.detect(grey_scene(160, 120))
+
+    assert result.detector_name not in {"unavailable", "error"}
