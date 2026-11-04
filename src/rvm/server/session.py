@@ -154,6 +154,7 @@ class StreamSession:
         self._audio_events: list[AudioEvent] = []
         self._models_ready = threading.Event()
         self._warmup: threading.Thread | None = None
+        self._audio_lock = threading.Lock()
         self._analysis_due = 0.0
 
         self.stats = StreamStats(window_seconds=4.0)
@@ -640,4 +641,3 @@ class StreamSession:
             recognizer.close()
 
         self.source.close()
-

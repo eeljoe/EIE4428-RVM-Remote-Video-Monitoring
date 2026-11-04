@@ -425,3 +425,14 @@ def test_a_tick_publishes_all_three_results_as_one_tuple():
     assert status["face_identities"]["marker"] == stubs[0].marker
     assert status["emotions"]["marker"] == stubs[1].marker
     assert status["gestures"]["marker"] == stubs[2].marker
+
+def test_features_does_not_probe_the_microphone():
+    """``status()`` calls features() twice a second; it must not open PortAudio."""
+    session = make_session()
+    capture = session._audio_capture()
+    assert capture.availability is None
+
+    features = session.features()
+
+    assert features["audio_available"] is None
+    assert capture._pyaudio is None, "features() must not construct PyAudio"

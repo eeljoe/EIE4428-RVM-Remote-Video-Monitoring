@@ -8,6 +8,9 @@ None of these tests need a microphone; the two that touch
 degrades quietly.
 """
 
+import threading
+import time
+
 import numpy as np
 import pytest
 
@@ -327,3 +330,41 @@ def test_speech_is_reported_at_most_once_per_cooldown():
 
     assert reported_at == [3, 11, 19]
 
+
+def test_concurrent_availability_probes_construct_pyaudio_once(monkeypatch):
+    """Two threads constructing PyAudio() at once kill the process.
+
+    PortAudio's initialisation is not thread-safe, so ``available`` has to
+    serialise and double-check.  The fake counts constructions and is slow
+    enough for the race to happen if the lock were missing.
+    """
+    import pyaudio as pyaudio_module
+
+    constructions = []
+
+    class SlowPyAudio:
+        def __init__(self):
+            constructions.append(1)
+            time.sleep(0.05)
+
+        def get_default_input_device_info(self):
+            return {"index": 0, "name": "fake"}
+
+        def terminate(self):
+            pass
+
+    monkeypatch.setattr(pyaudio_module, "PyAudio", SlowPyAudio)
+    capture = AudioCapture()
+
+    results = []
+    threads = [
+        threading.Thread(target=lambda: results.append(capture.available))
+        for _ in range(8)
+    ]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(constructions) == 1, "PyAudio must be constructed once"
+    assert len(results) == 8 and all(results)
