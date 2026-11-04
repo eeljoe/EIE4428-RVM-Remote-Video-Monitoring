@@ -10,14 +10,34 @@ requires-python = ">=3.10"
 dependencies = [
     "numpy>=1.24",
     "aiohttp>=3.9",
-    "opencv-python-headless>=4.8",
+    # Below 5: 5.x wheels dropped the Haar cascade API and the cascade data,
+    # which is what face detection runs on.
+    "opencv-python-headless>=4.8,<5",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
+# Optional analysers: face/expression/gesture recognition and audio events.
+# The server streams without them; each analyser reports itself unavailable
+# instead of crashing when a dependency or model file is missing.
+# opencv-contrib-python is MediaPipe's own dependency and is pinned below 5 for
+# the same reason as the headless build above.
+analysis = [
+    "mediapipe>=0.10,<2",
+    "opencv-contrib-python>=4.8,<5",
+    "pyaudio>=0.2.14",
+]
+
+
+[project.scripts]
+rvm-server = "rvm.server.app:main"
 
 [tool.setuptools.packages.find]
-include = ["src/*"]
+where = ["src"]
+include = ["rvm*"]
+
+[tool.setuptools.package-data]
+rvm = ["web/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

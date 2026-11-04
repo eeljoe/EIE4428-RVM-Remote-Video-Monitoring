@@ -1,5 +1,21 @@
 # Runtime dependencies for the RVM server.
 # Install with:  pip install -r requirements.txt
+#
+# OpenCV is pinned below 5: the 5.x wheels no longer ship the Haar cascade API
+# or the cascade data, so face detection silently reported "unavailable" on a
+# clean 5.x install.
 numpy>=1.24
 aiohttp>=3.9
-opencv-python-headless>=4.8
+opencv-python-headless>=4.8,<5
+
+# Optional analysers. The server streams without these; each analyser reports
+# itself unavailable through /api/features instead of failing.
+#
+#   mediapipe  face / expression / gesture recognition. It also depends on
+#              opencv-contrib-python, which is pinned below 5 for the same
+#              reason as above -- an unpinned install pulls 5.x and takes the
+#              cascade API away again.
+#   pyaudio    microphone capture for acoustic event detection.
+mediapipe>=0.10,<2
+opencv-contrib-python>=4.8,<5
+pyaudio>=0.2.14
