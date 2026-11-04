@@ -122,8 +122,12 @@ class AudioCapture:
             )
             self._stop_event.clear()
             self._capture_thread = Thread(target=self._capture_loop, daemon=True)
-            self._capture_thread.start()
+            # Set the flag *before* the thread runs: the loop clears it in its
+            # ``finally``, so a device that dies immediately would otherwise
+            # clear it first and then have it set back to True by this line,
+            # leaving "running" true with no thread behind it.
             self._running = True
+            self._capture_thread.start()
             return True
         except Exception as exc:  # noqa: BLE001 - no default input device is normal
             self._failure = f"{type(exc).__name__}: {exc}"

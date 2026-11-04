@@ -18,9 +18,18 @@ dashboard shows the difference between "switched off", "still starting",
 
 ```powershell
 pip install -r requirements.txt            # core stream
-pip install -r requirements-analysis.txt   # optional analysers
-pip uninstall -y opencv-python-headless    # see below: keep ONE cv2
+pip uninstall -y opencv-python-headless    # FIRST: see below, keep ONE cv2
+pip install -r requirements-analysis.txt   # THEN the analysers and contrib
 ```
+
+**Keep exactly one OpenCV distribution, and remove the headless one first.**
+MediaPipe depends on `opencv-contrib-python`, and it installs into the same
+`cv2/` directory as `opencv-python-headless`. Whichever is installed last wins,
+and uninstalling either one deletes files the survivor's RECORD still claims —
+after which `import cv2` fails with an `AttributeError` that says nothing about
+packaging. That is why the order above matters: uninstalling headless *after*
+contrib is installed reproduces the broken state every time, while removing it
+first leaves contrib as the single provider.
 
 **Keep exactly one OpenCV distribution.** MediaPipe depends on
 `opencv-contrib-python`, and it installs into the same `cv2/` directory as
@@ -53,12 +62,12 @@ and every analyser reports `unavailable` until it does.
 capture → motion → faces → tracks → [analysis every analysis_interval s] → encode → packetise
 ```
 
-The reason is arithmetic. Encoding a 320×240 picture costs a few milliseconds;
-one analysis pass costs about 19 ms on a blank frame and about 35 ms on a
-textured scene (measured medians: face 2.4–9.4 ms, expression 2.1–10.3 ms,
-gesture 14.9–15.1 ms). Running that per frame would spend most of the frame
-budget refreshing a dashboard panel. At the default 0.5 s cadence it is 4–7 %
-of one core, and the panel still updates twice a second.
+The reason is arithmetic. Encoding one 320×240 picture costs 34–49 ms on the
+demonstration laptop; one analysis pass costs 19–35 ms (measured medians: face
+2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per
+frame would add roughly a third to every picture to refresh a dashboard panel.
+At the default 0.5 s cadence it is 4–7 % of the encoder's time instead, and the
+panel still updates twice a second.
 
 What the cadence costs, stated plainly: a tick runs **inside** the encode
 thread, so the frame it lands on is one frame slower. Measured 160×128: median
@@ -110,7 +119,7 @@ the payloads and the tests agree on one vocabulary.
 | `unavailable` | a dependency or model file is missing; `features()` says which analysers are affected |
 | `error` | the analyser ran and failed on this picture |
 | `no-faces` / `no-hands` | it ran fine and found nothing |
-| `no-known-faces` | faces were found (`seen`) but none matched a registered identity |
+| `no-known-faces` | faces were found (`seen`) and **no identity has been registered at all**, so there is nothing to compare against. A face that is simply nobody the database knows about is `mediapipe` with an empty list: the recogniser ran, and "no match" is a result |
 | `mediapipe` | it ran and produced results |
 
 ## Gesture and expression rules
@@ -131,10 +140,11 @@ behaviour is auditable and their cost is bounded.
 - **Acoustic events** — loud and bright with a high crossing rate → gunshot;
   bright and noisy at moderate level → glass break; a sustained level across
   five chunks → alarm; otherwise a plain loud sound. Speech must hold for three
-  consecutive chunks, because a microphone's own noise floor sits in the speech
-  band and a quiet room otherwise produced an event every other frame. A quiet
-  chunk produces no event at all: reporting an "ambient" event per chunk floods
-  the list at 15 chunks a second and hides the events worth seeing.
+  consecutive chunks and then reports at most once every eight chunks (~0.5 s):
+  a microphone's noise floor sits in the speech band, so a quiet room produced
+  an event every other frame before those two rules. A quiet chunk produces no
+  event at all — the removed "ambient" event fired once per chunk and buried the
+  events worth seeing.
 
 ## Limitations (stated plainly)
 
@@ -154,6 +164,11 @@ behaviour is auditable and their cost is bounded.
 - **Gesture classification assumes an upright hand.** It is a geometric
   heuristic over 21 landmarks; a rotated hand misreads. The handedness label is
   reported, not compensated.
+- **A fist with the thumb tucked flat across the knuckles reads as
+  `thumbs_up`.** The thumb test is reach from the wrist, which that pose also
+  satisfies. Telling them apart needs palm-relative geometry (where the tip
+  lies relative to the four knuckles), which is the next step if the pose
+  matters.
 - **The first ~2 s of a session report `pending`.** That is the model load, and
   it is deliberately visible instead of being disguised as "off" or "no
   hands".

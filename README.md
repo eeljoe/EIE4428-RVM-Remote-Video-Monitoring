@@ -76,31 +76,34 @@ missing.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pip install -r requirements-analysis.txt
-.\.venv\Scripts\python.exe -m pip uninstall -y opencv-python-headless   # keep ONE cv2
+.\.venv\Scripts\python.exe -m pip uninstall -y opencv-python-headless   # FIRST
+.\.venv\Scripts\python.exe -m pip install -r requirements-analysis.txt  # THEN contrib
 ```
 
 MediaPipe depends on `opencv-contrib-python`, which owns the same `cv2/`
 directory as the headless build: installing both corrupts the shared files and
-pip does not warn. The server prints a warning at start-up if it finds more than
-one, and `requirements-analysis.txt` documents the swap. OpenCV is pinned below
-5 because the 5.x wheels dropped the Haar cascade API and data that face
-detection runs on.
+pip does not warn. The order above is the one that works — removing the headless
+build *after* contrib is installed deletes files contrib still lists, and
+`import cv2` then fails with an `AttributeError`. The server prints a warning at
+start-up if it finds more than one. OpenCV is pinned below 5 because the 5.x
+wheels dropped the Haar cascade API and data that face detection runs on.
 
 The analysers run on a 0.5 s cadence rather than per picture: one analysis pass
-costs 19–35 ms against a few milliseconds to encode a frame, so per-frame
-analysis would spend most of the frame budget refreshing a dashboard panel. A
-tick runs inside the encode thread, which makes the frame it lands on about
-17 ms slower (measured 160×128: 30.7 → 47.3 ms median); end-to-end frame rate
-measured 13.25 vs 13.33 fps on a clean machine and 9.6 vs 10.4 fps on a loaded
-one, so the per-tick cost is the number to trust, not the frame rate. Models load
-in a background thread, so the first picture is not held up. Audio is a separate
-switch and keeps working under `--no-analysis`.
+costs 19–35 ms against 34–49 ms to encode a frame on the demonstration laptop, so
+per-frame analysis would add roughly a third to every picture just to refresh a
+dashboard panel. A tick runs inside the encode thread, which makes the frame it
+lands on about 17 ms slower (measured 160×128: 30.7 → 47.3 ms median); end-to-end
+frame rate measured 13.25 vs 13.33 fps on a clean machine and 9.6 vs 10.4 fps on
+a loaded one, so the per-tick cost is the number to trust, not the frame rate.
+Models load in a background thread, so the first picture is not held up. Audio is
+a separate switch and keeps working under `--no-analysis`.
 
-Every result carries a state — `disabled`, `pending`, `unavailable`, `error`,
-`no-faces`, `no-hands`, `no-known-faces` or `mediapipe` — so "switched off",
-"still starting", "broken" and "working on an empty scene" look different on the
-dashboard. Details, costs and limitations: [`docs/FEATURES.md`](docs/FEATURES.md).
+Every analyser result carries a state — `disabled`, `pending`, `unavailable`,
+`error`, `no-faces`, `no-hands`, `no-known-faces` or `mediapipe` — so "switched
+off", "still starting", "broken" and "working on an empty scene" look different on
+the dashboard. Tracking results and individual audio events do not carry one:
+they are lists of observations, and the per-endpoint table in
+[`docs/FEATURES.md`](docs/FEATURES.md) says which payload holds which key.
 
 ### Measured results
 
@@ -311,4 +314,5 @@ Five to seven minutes, in the order that shows the most with the least clicking.
 - [ ] Second PC connects over the LAN address, not `localhost`, and the firewall rule is in place.
 - [ ] `mini-project/EIE4428-RVM.zip` rebuilt with `tools/make_zip.py`, which unpacks its own output and runs the test suite there.
 - [ ] Test recordings containing private material deleted before zipping.
+
 

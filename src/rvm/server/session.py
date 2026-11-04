@@ -149,6 +149,8 @@ class StreamSession:
         self._face_identities = FaceRecognition([], initial_state)
         self._emotions = EmotionDetection([], initial_state)
         self._gestures = GestureDetection([], initial_state)
+        # One tuple, swapped atomically: readers never see a half-applied tick.
+        self._analysis_view = (self._face_identities, self._emotions, self._gestures)
         self._audio_events: list[AudioEvent] = []
         self._models_ready = threading.Event()
         self._warmup: threading.Thread | None = None
@@ -386,10 +388,14 @@ class StreamSession:
     def _analyse(self, frame: np.ndarray) -> None:
         """Run the optional analysers on a cadence rather than per picture.
 
-        Recognition is not what the pipeline is graded on, and it is an order
-        of magnitude more expensive than encoding a 320x240 picture.  Running
-        it every ``analysis_interval`` seconds keeps the stream at its frame
-        rate while still refreshing the dashboard twice a second.
+        Encoding one 320x240 picture costs 34-49 ms on the demonstration
+        machine, and one analysis pass costs 19-35 ms.  Running the analysers
+        per frame would therefore add roughly a third to every picture to
+        refresh a dashboard panel; every ``analysis_interval`` seconds costs
+        4-7 % of the encoder's time instead.
+
+        The three results are published as one tuple so a reader never sees a
+        half-applied tick (face updated, gestures still pending).
         """
         if not self.analysis_enabled or not self._models_ready.is_set():
             return
@@ -399,9 +405,10 @@ class StreamSession:
             return
         self._analysis_due = now + self.analysis_interval
 
-        self._face_identities = self.face_recognizer.recognize(frame)
-        self._emotions = self.emotion_recognizer.detect(frame)
-        self._gestures = self.gesture_recognizer.detect(frame)
+        face_identities = self.face_recognizer.recognize(frame)
+        emotions = self.emotion_recognizer.detect(frame)
+        gestures = self.gesture_recognizer.detect(frame)
+        self._analysis_view = (face_identities, emotions, gestures)
 
     def _drain_audio(self) -> None:
         """Move captured audio into events, a bounded number of chunks at a time.
@@ -438,10 +445,13 @@ class StreamSession:
     def set_audio_enabled(self, enabled: bool) -> bool:
         """Start or stop audio monitoring; returns whether it is running.
 
-        The capture is created even for ``enabled=False`` so the caller gets a
-        real answer about the device instead of "never looked".
+        Blocking: opening PortAudio costs a few hundred milliseconds, so call
+        this from a worker thread (the HTTP handler does).  The device probe
+        happens here for the same reason -- and so that the answer about the
+        device is never "never looked".
         """
         capture = self._audio_capture()
+        capture.available
         if enabled:
             if capture.start():
                 # A fresh start is a fresh measurement: leftover RMS history
@@ -453,6 +463,23 @@ class StreamSession:
         else:
             capture.stop()
         return self.audio_enabled
+
+    def audio_report(self, requested: bool) -> dict:
+        """Apply an audio-control request and describe the outcome.
+
+        One method so that the whole blocking interaction -- probe, open,
+        report -- is a single hop to a worker thread instead of the response
+        being assembled on the event loop, where the first probe alone stalls
+        every other request for ~300 ms.
+        """
+        running = self.set_audio_enabled(requested)
+        capture = self.audio_capture
+        return {
+            "requested": requested,
+            "running": running,
+            "available": bool(capture and capture.available),
+            "reason": None if capture is None else capture.unavailable_reason,
+        }
 
     def features(self) -> dict:
         """Which optional analysers this machine can actually run.
@@ -479,14 +506,15 @@ class StreamSession:
 
     def analysis_status(self) -> dict:
         """The analysis half of the API, in one shape for every caller."""
+        face_identities, emotions, gestures = self._analysis_view
         return {
             "tracks": {
                 "count": len(self._tracks),
                 "tracks": [track.snapshot() for track in self._tracks],
             },
-            "face_identities": self._face_identities.snapshot(),
-            "emotions": self._emotions.snapshot(),
-            "gestures": self._gestures.snapshot(),
+            "face_identities": face_identities.snapshot(),
+            "emotions": emotions.snapshot(),
+            "gestures": gestures.snapshot(),
             "audio": {
                 "count": len(self._audio_events),
                 "events": [event.snapshot() for event in self._audio_events[-20:]],
@@ -531,6 +559,7 @@ class StreamSession:
 
     def status(self) -> dict:
         """A JSON-friendly summary for the dashboard and the REST API."""
+        face_identities, emotions, gestures = self._analysis_view
         snapshot = self.stats.snapshot()
         motion = self._motion.snapshot() if self._motion else {}
         faces = self._faces.snapshot() if self._faces else {}
@@ -561,9 +590,9 @@ class StreamSession:
                 # The analysis results ride along with the telemetry the
                 # WebSocket already pushes, so the dashboard needs no second
                 # polling loop to show them.
-                "face_identities": self._face_identities.snapshot(),
-                "emotions": self._emotions.snapshot(),
-                "gestures": self._gestures.snapshot(),
+                "face_identities": face_identities.snapshot(),
+                "emotions": emotions.snapshot(),
+                "gestures": gestures.snapshot(),
                 "audio_events": len(self._audio_events),
                 "audio_last": (
                     self._audio_events[-1].event_type.value if self._audio_events else None
@@ -611,3 +640,4 @@ class StreamSession:
             recognizer.close()
 
         self.source.close()
+

@@ -23,9 +23,9 @@ dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
 #
 # This extra swaps the OpenCV distribution: MediaPipe depends on
 # opencv-contrib-python, which owns the same cv2/ directory as the headless
-# build in [project.dependencies].  Installing this extra therefore means
-# uninstalling opencv-python-headless afterwards -- see
-# requirements-analysis.txt, and the start-up warning in rvm.server.app.
+# build in [project.dependencies].  Uninstall opencv-python-headless FIRST and
+# then install this extra, so contrib is the only provider -- removing headless
+# afterwards deletes files contrib still lists.  See requirements-analysis.txt.
 analysis = [
     "opencv-contrib-python>=4.8,<5",
     "mediapipe>=0.10,<2",
@@ -54,3 +54,4 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests that take more than a couple of seconds",
 ]
+

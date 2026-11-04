@@ -251,3 +251,21 @@ def test_reset_forgets_the_history():
     assert status["frames_analyzed"] == 0
     assert status["history_length"] == 0
 
+
+def test_speech_is_reported_at_most_once_per_cooldown():
+    """A room with the gain up makes speech-shaped audio continuously.
+
+    The three-chunk rule stops the first event; without a cooldown the rest of
+    the chunk stream becomes one event after another.  Twenty chunks yield
+    three events: the streak completes at chunk 3, then the cooldown allows one
+    every eight chunks (11, 19).
+    """
+    analyzer = AudioAnalyzer()
+    chunk = noise(amplitude=0.01)
+
+    reported_at = [
+        frame for frame in range(1, 21) if analyzer.analyze(chunk)
+    ]
+
+    assert reported_at == [3, 11, 19]
+

@@ -365,18 +365,10 @@ async def handle_audio_control(request: web.Request) -> web.Response:
         raise web.HTTPBadRequest(text='expected {"enabled": true|false}')
 
     requested = body["enabled"]
-    # Opening a sound device takes hundreds of milliseconds; doing it on the
-    # event loop stalls the stream and the telemetry push for that long.
-    running = await asyncio.to_thread(session.set_audio_enabled, requested)
-    capture = session.audio_capture
-    return web.json_response(
-        {
-            "requested": requested,
-            "running": running,
-            "available": bool(capture and capture.available),
-            "reason": None if capture is None else capture.unavailable_reason,
-        }
-    )
+    # Opening a sound device takes hundreds of milliseconds, and so does asking
+    # whether one exists; both belong on a worker thread, not on the loop.
+    report = await asyncio.to_thread(session.audio_report, requested)
+    return web.json_response(report)
 
 
 # --------------------------------------------------------------------------
@@ -509,8 +501,9 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
         print(
             "warning: several OpenCV distributions are installed "
             f"({', '.join(duplicates)}); they all own the cv2 directory and can "
-            "corrupt each other. Keep exactly one -- install the optional "
-            "analysers with requirements-analysis.txt and remove the other build.",
+            "corrupt each other. Keep exactly one: uninstall the headless build "
+            "FIRST, then install requirements-analysis.txt, so contrib is the "
+            "single provider.",
             flush=True,
         )
 

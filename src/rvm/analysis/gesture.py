@@ -234,11 +234,14 @@ class GestureRecognizer:
         thumb folds *across* the palm instead of down, so its test is reach:
         an extended thumb's tip is farther from the wrist than its own
         interphalangeal joint, a folded one tucks back toward the palm.  A
-        handedness-dependent sideways comparison would read a vertical
-        thumbs-up as a fist -- the pose the feature is named after.
+        sideways comparison would read a vertical thumbs-up as a fist, and on a
+        mirrored camera it would invert.
 
-        The long-finger convention assumes roughly upright hands, which is
-        stated as a limitation in ``docs/FEATURES.md``.
+        Known limit, stated rather than hidden: a fist with the thumb tucked
+        flat across the knuckles also passes this test and reads as
+        ``thumbs_up``.  Distinguishing the two needs palm-relative geometry
+        (where the tip lies relative to the four knuckles), which is the next
+        step if the pose matters; see ``docs/FEATURES.md``.
         """
         wrist = hand_landmarks[WRIST]
         thumb_tip = hand_landmarks[THUMB_TIP]
@@ -301,3 +304,4 @@ class GestureRecognizer:
                 hands.close()
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
+

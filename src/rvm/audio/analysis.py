@@ -77,6 +77,12 @@ class AudioAnalyzer:
     #: (~130 ms) is long enough to separate "someone spoke" from "the room
     #: hums", and short enough not to miss a short word.
     SPEECH_CHUNKS = 3
+    #: Minimum chunks between two speech events.  Three consecutive chunks
+    #: stop the *first* event of a quiet room's noise; the cooldown stops the
+    #: rest of them, because a microphone with the gain up produces speech-shaped
+    #: audio continuously.  Eight chunks is about half a second at the default
+    #: chunk size, so a real sentence still reports at least twice.
+    SPEECH_COOLDOWN_CHUNKS = 8
 
     def __init__(
         self,
@@ -91,12 +97,14 @@ class AudioAnalyzer:
         self._history: List[float] = []
         self._max_history = 50
         self._speech_streak = 0
+        self._last_speech_frame = -10_000
 
     def reset(self) -> None:
         """Forget the running history."""
         self._frame_count = 0
         self._history.clear()
         self._speech_streak = 0
+        self._last_speech_frame = -10_000
 
     def analyze(self, audio_chunk: np.ndarray) -> List[AudioEvent]:
         """Return the events present in one chunk (usually none)."""
@@ -149,7 +157,12 @@ class AudioAnalyzer:
 
         if zcr > 0.05:
             self._speech_streak += 1
-            if self._speech_streak >= self.SPEECH_CHUNKS:
+            since_last = self._frame_count - self._last_speech_frame
+            if (
+                self._speech_streak >= self.SPEECH_CHUNKS
+                and since_last >= self.SPEECH_COOLDOWN_CHUNKS
+            ):
+                self._last_speech_frame = self._frame_count
                 return [
                     AudioEvent(
                         event_type=EventType.SPEECH,
@@ -241,3 +254,4 @@ class AudioAnalyzer:
             "frames_analyzed": self._frame_count,
             "history_length": len(self._history),
         }
+

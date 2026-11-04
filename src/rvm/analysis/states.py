@@ -16,8 +16,10 @@ six strings instead of a boolean is that they are six different situations:
 ``error``
     the analyser ran and failed on this picture.
 ``no-faces`` / ``no-hands`` / ``no-known-faces``
-    it ran fine and had nothing to report: an empty scene, or faces that match
-    no registered identity.
+    it ran fine and had nothing to report: an empty scene, or faces seen while
+    no identity has been registered at all.  A face that matches nobody in a
+    populated database is ``mediapipe`` with an empty list -- the recogniser
+    ran, and "no match" is a result rather than an absence.
 ``mediapipe``
     it ran and produced results.
 """
