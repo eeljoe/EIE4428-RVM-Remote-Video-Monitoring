@@ -389,11 +389,11 @@ class StreamSession:
     def _analyse(self, frame: np.ndarray) -> None:
         """Run the optional analysers on a cadence rather than per picture.
 
-        Encoding one 320x240 picture costs 34-49 ms on the demonstration
-        machine, and one analysis pass costs 19-35 ms.  Running the analysers
-        per frame would therefore add roughly a third to every picture to
-        refresh a dashboard panel; every ``analysis_interval`` seconds costs
-        4-7 % of the encoder's time instead.
+        Encoding one 320x240 picture costs 25-49 ms on the demonstration
+        machine, and one analysis pass costs 16-35 ms.  Running the analysers
+        per frame would therefore add 40-70 % to every picture to refresh a
+        dashboard panel; every ``analysis_interval`` seconds costs 4-9 % of the
+        encoder's time instead.
 
         The three results are published as one tuple so a reader never sees a
         half-applied tick (face updated, gestures still pending).
@@ -433,9 +433,17 @@ class StreamSession:
         self._audio_events = events[-AUDIO_EVENT_LIMIT:]
 
     def _audio_capture(self) -> AudioCapture:
-        """The microphone, created on first use so a headless run pays nothing."""
+        """The microphone, created on first use so a headless run pays nothing.
+
+        Double-checked under a lock: the warm-up thread and an audio-control
+        worker both arrive here, and two AudioCapture objects would mean two
+        independent PyAudio contexts -- which is the crash this area keeps
+        working around, one level up.  The lock is held only for construction.
+        """
         if self.audio_capture is None:
-            self.audio_capture = AudioCapture()
+            with self._audio_lock:
+                if self.audio_capture is None:
+                    self.audio_capture = AudioCapture()
         return self.audio_capture
 
     @property
@@ -641,3 +649,4 @@ class StreamSession:
             recognizer.close()
 
         self.source.close()
+

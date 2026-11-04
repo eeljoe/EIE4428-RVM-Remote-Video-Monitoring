@@ -1,6 +1,8 @@
 """Tests for the capture sources and the multi-client stream session."""
 
 import asyncio
+import threading
+import time
 
 import numpy as np
 import pytest
@@ -436,3 +438,37 @@ def test_features_does_not_probe_the_microphone():
 
     assert features["audio_available"] is None
     assert capture._pyaudio is None, "features() must not construct PyAudio"
+
+def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
+    """Two AudioCapture objects mean two PyAudio contexts and a crash.
+
+    Construction is slowed down so the window is wide enough for eight threads
+    to fall into it; without the lock this test builds eight objects.
+    """
+    import rvm.audio.capture as capture_module
+
+    original_init = capture_module.AudioCapture.__init__
+    constructions = []
+    guard = threading.Lock()
+
+    def slow_init(self, config=None):
+        original_init(self, config)
+        with guard:
+            constructions.append(1)
+        time.sleep(0.02)
+
+    monkeypatch.setattr(capture_module.AudioCapture, "__init__", slow_init)
+    session = make_session()
+    barrier = threading.Barrier(8)
+
+    def grab():
+        barrier.wait()
+        session._audio_capture()
+
+    threads = [threading.Thread(target=grab) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(constructions) == 1, "the capture must be constructed once"

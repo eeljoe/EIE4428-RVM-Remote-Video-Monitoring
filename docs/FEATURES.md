@@ -57,8 +57,8 @@ capture → motion → faces → tracks → [analysis every analysis_interval s]
 The reason is arithmetic. Encoding one 320×240 picture costs 34–49 ms on the
 demonstration laptop; one analysis pass costs 19–35 ms (measured medians: face
 2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per
-frame would add 40–55 % to every picture (measured: 15.5–19.6 ms of analysis against
-30.4–48.3 ms to encode, across two runs) to refresh a dashboard panel.
+frame would add 40–70 % to every picture (two runs: 15.5–19.6 ms of analysis against
+24.6–48.3 ms to encode) to refresh a dashboard panel.
 At the default 0.5 s cadence it is 4–7 % of the encoder's time instead, and the
 panel still updates twice a second.
 
@@ -165,3 +165,4 @@ behaviour is auditable and their cost is bounded.
 - **The first ~2 s of a session report `pending`.** That is the model load, and
   it is deliberately visible instead of being disguised as "off" or "no
   hands".
+
