@@ -389,11 +389,11 @@ class StreamSession:
     def _analyse(self, frame: np.ndarray) -> None:
         """Run the optional analysers on a cadence rather than per picture.
 
-        Encoding one 320x240 picture costs 25-49 ms on the demonstration
-        machine, and one analysis pass costs 16-35 ms.  Running the analysers
-        per frame would therefore add 40-70 % to every picture to refresh a
-        dashboard panel; every ``analysis_interval`` seconds costs 4-9 % of the
-        encoder's time instead.
+        Encoding one 320x240 picture costs 20-48 ms on the demonstration
+        machine, and one analysis pass costs 16-24 ms.  Running the analysers
+        per frame would therefore add 40-85 % to every picture to refresh a
+        dashboard panel; every ``analysis_interval`` seconds it costs 3-5 % of
+        the period instead.
 
         The three results are published as one tuple so a reader never sees a
         half-applied tick (face updated, gestures still pending).

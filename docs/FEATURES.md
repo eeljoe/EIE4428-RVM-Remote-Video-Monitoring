@@ -54,13 +54,12 @@ and every analyser reports `unavailable` until it does.
 capture → motion → faces → tracks → [analysis every analysis_interval s] → encode → packetise
 ```
 
-The reason is arithmetic. Encoding one 320×240 picture costs 34–49 ms on the
-demonstration laptop; one analysis pass costs 19–35 ms (measured medians: face
-2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per
-frame would add 40–70 % to every picture (two runs: 15.5–19.6 ms of analysis against
-24.6–48.3 ms to encode) to refresh a dashboard panel.
-At the default 0.5 s cadence it is 4–7 % of the encoder's time instead, and the
-panel still updates twice a second.
+The reason is arithmetic. Encoding one 320×240 picture costs 20–48 ms on the
+demonstration laptop; one analysis pass costs 16–24 ms (measured medians: face
+2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per frame
+would add 40–85 % to every picture to refresh a dashboard panel (measured median
+ratio 67–83 %). At the default 0.5 s cadence it occupies 3–5 % of the period
+instead, and the panel still updates twice a second.
 
 What the cadence costs, stated plainly: a tick runs **inside** the encode
 thread, so the frame it lands on is one frame slower. Measured 160×128: median

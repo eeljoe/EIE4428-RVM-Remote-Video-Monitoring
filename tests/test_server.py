@@ -439,6 +439,7 @@ def test_features_does_not_probe_the_microphone():
     assert features["audio_available"] is None
     assert capture._pyaudio is None, "features() must not construct PyAudio"
 
+
 def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
     """Two AudioCapture objects mean two PyAudio contexts and a crash.
 
@@ -465,10 +466,12 @@ def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
         barrier.wait()
         session._audio_capture()
 
-    threads = [threading.Thread(target=grab) for _ in range(8)]
+    created = []
+    threads = [threading.Thread(target=lambda: created.append(session._audio_capture())) for _ in range(8)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(timeout=10)
 
     assert len(constructions) == 1, "the capture must be constructed once"
+    assert len({id(capture) for capture in created}) == 1, "every caller gets the same object"

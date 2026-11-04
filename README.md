@@ -89,14 +89,15 @@ start-up if it finds more than one. OpenCV is pinned below 5 because the 5.x
 wheels dropped the Haar cascade API and data that face detection runs on.
 
 The analysers run on a 0.5 s cadence rather than per picture: one analysis pass
-costs 19–35 ms against 34–49 ms to encode a frame on the demonstration laptop, so
-per-frame analysis would add 40–70 % to every picture just to refresh a
-dashboard panel. A tick runs inside the encode thread, which makes the frame it
-lands on about 17 ms slower (measured 160×128: 30.7 → 47.3 ms median); end-to-end
-frame rate measured 13.25 vs 13.33 fps on a clean machine and 9.6 vs 10.4 fps on
-a loaded one, so the per-tick cost is the number to trust, not the frame rate.
-Models load in a background thread, so the first picture is not held up. Audio is
-a separate switch and keeps working under `--no-analysis`.
+costs 16–24 ms against 20–48 ms to encode a frame on the demonstration laptop, so
+per-frame analysis would add 40–85 % to every picture to refresh a dashboard
+panel (measured median ratio 67–83 %). A tick runs inside the encode thread,
+which makes the frame it lands on about 17 ms slower (measured 160×128: 30.7 →
+47.3 ms median); end-to-end frame rate measured 13.25 vs 13.33 fps on a clean
+machine and 9.6 vs 10.4 fps on a loaded one, so the per-tick cost is the number
+to trust, not the frame rate. At the 0.5 s cadence the analysis occupies 3–5 % of
+the period. Models load in a background thread, so the first picture is not held
+up. Audio is a separate switch and keeps working under `--no-analysis`.
 
 Every analyser result carries a state — `disabled`, `pending`, `unavailable`,
 `error`, `no-faces`, `no-hands`, `no-known-faces` or `mediapipe` — so "switched
@@ -314,4 +315,3 @@ Five to seven minutes, in the order that shows the most with the least clicking.
 - [ ] Second PC connects over the LAN address, not `localhost`, and the firewall rule is in place.
 - [ ] `mini-project/EIE4428-RVM.zip` rebuilt with `tools/make_zip.py`, which unpacks its own output and runs the test suite there.
 - [ ] Test recordings containing private material deleted before zipping.
-
