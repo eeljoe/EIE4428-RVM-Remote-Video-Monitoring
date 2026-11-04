@@ -460,7 +460,8 @@ def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
 
     monkeypatch.setattr(capture_module.AudioCapture, "__init__", slow_init)
     session = make_session()
-    barrier = threading.Barrier(8)
+    # A timeout so a thread that never starts cannot park the other seven here forever.
+    barrier = threading.Barrier(8, timeout=30)
 
 
     created = []
