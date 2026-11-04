@@ -3,6 +3,8 @@ __pycache__/
 *.py[cod]
 .venv/
 .pytest_cache/
+build/
+dist/
 *.egg-info/
 
 # Runtime output
@@ -17,3 +19,4 @@ screenshots/
 .idea/
 .DS_Store
 Thumbs.db
+

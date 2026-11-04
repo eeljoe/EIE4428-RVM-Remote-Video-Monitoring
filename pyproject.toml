@@ -20,11 +20,15 @@ dev = ["pytest>=7.4", "pytest-asyncio>=0.23"]
 # Optional analysers: face/expression/gesture recognition and audio events.
 # The server streams without them; each analyser reports itself unavailable
 # instead of crashing when a dependency or model file is missing.
-# opencv-contrib-python is MediaPipe's own dependency and is pinned below 5 for
-# the same reason as the headless build above.
+#
+# This extra swaps the OpenCV distribution: MediaPipe depends on
+# opencv-contrib-python, which owns the same cv2/ directory as the headless
+# build in [project.dependencies].  Installing this extra therefore means
+# uninstalling opencv-python-headless afterwards -- see
+# requirements-analysis.txt, and the start-up warning in rvm.server.app.
 analysis = [
-    "mediapipe>=0.10,<2",
     "opencv-contrib-python>=4.8,<5",
+    "mediapipe>=0.10,<2",
     "pyaudio>=0.2.14",
 ]
 
