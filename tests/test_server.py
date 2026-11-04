@@ -462,16 +462,19 @@ def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
     session = make_session()
     barrier = threading.Barrier(8)
 
-    def grab():
-        barrier.wait()
-        session._audio_capture()
 
     created = []
-    threads = [threading.Thread(target=lambda: created.append(session._audio_capture())) for _ in range(8)]
+
+    def grab():
+        barrier.wait()
+        created.append(session._audio_capture())
+
+    threads = [threading.Thread(target=grab) for _ in range(8)]
     for thread in threads:
         thread.start()
     for thread in threads:
         thread.join(timeout=10)
 
     assert len(constructions) == 1, "the capture must be constructed once"
+    assert len(created) == 8, "every thread must have reached the capture"
     assert len({id(capture) for capture in created}) == 1, "every caller gets the same object"

@@ -56,7 +56,7 @@ capture → motion → faces → tracks → [analysis every analysis_interval s]
 
 The reason is arithmetic. Encoding one 320×240 picture costs 20–48 ms on the
 demonstration laptop; one analysis pass costs 16–24 ms (measured medians: face
-2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per frame
+2.3–2.4 ms, expression 2.1–2.2 ms, gesture 12.2–13.8 ms). Running that per frame
 would add 40–85 % to every picture to refresh a dashboard panel (measured median
 ratio 67–83 %). At the default 0.5 s cadence it occupies 3–5 % of the period
 instead, and the panel still updates twice a second.
