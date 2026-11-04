@@ -242,7 +242,9 @@ under 2 ms (median) instead of timing out.
 the number a user cares about is distortion. That loop is closed by measuring PSNR against
 the encoder's own reconstruction — the picture the receiver actually displays.
 
-**Known limitations (stated plainly):** video only, no audio; the custom codec is a
+**Known limitations (stated plainly):** video is streamed to the viewer; audio is
+captured and analysed locally for acoustic events but is not coded or streamed,
+so a remote station receives picture only. The custom codec is a
 teaching implementation and is considerably less efficient than H.264, which adds larger
 transform blocks, multiple reference frames, deblocking and intra prediction; frame rate is
 bounded by Python rather than by the algorithm, and 640×480 is consequently not real time.
