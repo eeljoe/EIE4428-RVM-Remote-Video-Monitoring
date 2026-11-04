@@ -144,6 +144,18 @@ SPECIAL_FEATURES = [
     "Unlimited concurrent viewers, each with its own bounded latest-only queue.",
     "Client-side jitter buffer with an adaptive playout delay, able to reorder, "
     "detect loss and resynchronise after an interruption.",
+
+    "Optional MediaPipe analysers alongside the codec: face identification against "
+    "a landmark embedding, seven-class expression classification from blendshape "
+    "activations, and eight hand gestures from 21 hand landmarks. Each reports a "
+    "state (disabled / pending / unavailable / error / no-faces / no-hands / "
+    "mediapipe) instead of failing, and they run on a 0.5 s cadence rather than per "
+    "frame so the codec keeps its frame rate.",
+
+    "Acoustic event detection from signal features rather than a model: RMS level, "
+    "zero-crossing rate and spectral centroid separate loud sound, speech, silence, "
+    "gunshot, glass break and alarm. Audio is analysed locally and is not streamed, "
+    "which is stated as a limitation rather than implied otherwise.",
 ]
 
 ACHIEVEMENTS = [
@@ -420,8 +432,10 @@ CONCLUSIONS = [
     "estimates complexity from the previous picture, which fails on a scene change "
     "-- precisely the event a monitoring system exists to detect.",
 
-    "Honest limitations are recorded rather than hidden. Audio was not implemented, "
-    "so the system is video-only. The custom codec is a teaching implementation: it "
+    "Honest limitations are recorded rather than hidden. Audio is captured and "
+    "analysed locally for acoustic events, but it is not coded or streamed, so the "
+    "remote station receives video only. The custom codec is a teaching "
+    "implementation: it "
     "is considerably less efficient than H.264, which has three decades of "
     "additional refinement such as larger transform blocks, multiple reference "
     "frames, deblocking and sophisticated intra prediction. The browser cannot "
@@ -491,8 +505,9 @@ DEVELOPMENT_PLATFORM = (
 
 FUNCTIONALITIES = {
     "Basic Remote Monitoring Function": (
-        "Video only. A remote station views the live picture of the monitored "
-        "place in a standard web browser; no audio channel is implemented."
+        "A remote station views the live picture of the monitored place in a "
+        "standard web browser. Video is streamed; audio is captured and analysed "
+        "on the server for acoustic events, but it is not streamed to the viewer."
     ),
     "Achieved Video Frame Rate (Frames/s)": (
         "About 20 frames/s achieved at 320x240, the default operating point; the "
@@ -511,8 +526,11 @@ FUNCTIONALITIES = {
         "stay block aligned."
     ),
     "Audio Format (if any)": (
-        "None. Audio capture, coding and synchronisation were out of scope for "
-        "this implementation."
+        "16 kHz mono, signed 16-bit PCM, captured from the server microphone and "
+        "analysed locally for acoustic events (loud sound, speech, silence, "
+        "gunshot, glass break, alarm). Audio is not coded or streamed: there is no "
+        "audio channel to the remote station, so no A/V synchronisation problem "
+        "arises."
     ),
     "Concurrent Access to the Server": (
         "Yes, unlimited. One encode serves every viewer, so each additional "

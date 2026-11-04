@@ -224,7 +224,11 @@ class TestCoverTables:
             row.cells[0].text.strip(): row.cells[1].text.strip()
             for row in built.tables[1].rows[1:]
         }
-        assert answered["Audio Format (if any)"].lower().startswith("none")
+        audio = answered["Audio Format (if any)"].lower()
+        # The system does capture audio, so the answer must say what format it is
+        # in -- and must not imply an audio channel to the viewer exists.
+        assert audio.startswith("16 khz")
+        assert "not coded or streamed" in audio
 
 
 class TestFigure:
