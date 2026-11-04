@@ -1,0 +1,24 @@
+# Optional analysers: face identification, expression and gesture recognition,
+# and acoustic events.  The server streams without any of this.
+#
+# READ THIS FIRST.  MediaPipe depends on opencv-contrib-python, and both
+# opencv-python-headless (in requirements.txt) and opencv-contrib-python
+# install a cv2/ directory.  Whichever is installed last wins; uninstalling
+# either one then deletes files the other's RECORD still claims, and
+# `import cv2` fails with no useful message.  pip does not warn.  Keep exactly
+# one OpenCV distribution:
+#
+#   pip uninstall -y opencv-python-headless    # FIRST -- see below
+#   pip install -r requirements-analysis.txt   # THEN contrib becomes the provider
+#
+# The order matters: uninstalling the headless build *after* contrib is
+# installed deletes files contrib's RECORD still lists (they are shared), and
+# `import cv2` then fails with `AttributeError: module 'cv2' has no attribute
+# '__version__'`.  Remove headless first, then install contrib.
+#
+# The server prints a warning at start-up if it finds more than one.
+#
+# Both are pinned below 5 for the reason in requirements.txt.
+opencv-contrib-python>=4.8,<5
+mediapipe>=0.10,<2
+pyaudio>=0.2.14

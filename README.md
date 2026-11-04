@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 403 tests, ~10s
+.\.venv\Scripts\python.exe -m pytest          # 497 tests, ~20s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -59,6 +59,52 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Recording** | Timestamped colour JPEG clips written off the live path |
 | **Concurrency** | Unlimited viewers; one encode feeds all of them |
 | **Two views** | *Camera* shows the raw picture, *Decoded (RVM1)* shows what a receiver reconstructs from the bitstream — the codec's own distortion, visible rather than claimed |
+
+### Optional analysis
+
+Four analysers beyond the core requirements. They are opt-in — `run_server.py`
+enables them, `--no-analysis` turns them off — and each one reports itself
+unavailable rather than breaking the stream when a dependency or model file is
+missing.
+
+| | | Depends on |
+|---|---|---|
+| **Face identification** | MediaPipe landmarks compared against a small known-face database | `mediapipe` |
+| **Expression** | Seven weighted sums over blendshapes (happy, sad, angry, surprise, fear, disgust, neutral) | `mediapipe` |
+| **Gestures** | Open palm, fist, pointing, peace, thumbs up/down, OK from 21 hand landmarks | `mediapipe` |
+| **Acoustic events** | Loud sound, speech, silence, gunshot, glass break, alarm from RMS / crossing rate / spectral centroid | `pyaudio` |
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip uninstall -y opencv-python-headless   # FIRST
+.\.venv\Scripts\python.exe -m pip install -r requirements-analysis.txt  # THEN contrib
+```
+
+MediaPipe depends on `opencv-contrib-python`, which owns the same `cv2/`
+directory as the headless build: installing both corrupts the shared files and
+pip does not warn. The order above is the one that works — removing the headless
+build *after* contrib is installed deletes files contrib still lists, and
+`import cv2` then fails with an `AttributeError`. The server prints a warning at
+start-up if it finds more than one. OpenCV is pinned below 5 because the 5.x
+wheels dropped the Haar cascade API and data that face detection runs on.
+
+The analysers run on a 0.5 s cadence rather than per picture: one analysis pass
+costs 16–24 ms against 20–48 ms to encode a frame on the demonstration laptop, so
+per-frame analysis would add 40–85 % to every picture to refresh a dashboard
+panel (measured median ratio 67–83 %). A tick runs inside the encode thread,
+which makes the frame it lands on about 17 ms slower (measured 160×128: 30.7 →
+47.3 ms median); end-to-end frame rate measured 13.25 vs 13.33 fps on a clean
+machine and 9.6 vs 10.4 fps on a loaded one, so the per-tick cost is the number
+to trust, not the frame rate. At the 0.5 s cadence the analysis occupies 3–5 % of
+the period. Models load in a background thread, so the first picture is not held
+up. Audio is a separate switch and keeps working under `--no-analysis`.
+
+Every analyser result carries a state — `disabled`, `pending`, `unavailable`,
+`error`, `no-faces`, `no-hands`, `no-known-faces` or `mediapipe` — so "switched
+off", "still starting", "broken" and "working on an empty scene" look different on
+the dashboard. Tracking results and individual audio events do not carry one:
+they are lists of observations, and the per-endpoint table in
+[`docs/FEATURES.md`](docs/FEATURES.md) says which payload holds which key.
 
 ### Measured results
 
@@ -115,9 +161,18 @@ API latency above is the evidence that it does not.
 | `GET` | `/api/snapshot.jpg` | Single JPEG snapshot (same `view` parameter) |
 | `GET` | `/api/metrics` | Full telemetry as JSON |
 | `GET` | `/api/clips` | List recorded clips |
+| `GET` | `/api/clips/<clip>/<n>.jpg` | Frame *n* of a stored clip |
 | `POST` | `/api/config` | Set target bit rate without restarting the stream |
+| `POST` | `/api/motion` | Set the detection zone and sensitivity |
 | `POST` | `/api/record` | Start / stop recording |
-| `GET` | `/ws` | WebSocket telemetry push |
+| `GET` | `/api/features` | Which optional analysers are enabled / available |
+| `GET` | `/api/tracks` | Tracked objects with persistent IDs |
+| `GET` | `/api/faces/identities` | Faces matched against the known-face database |
+| `GET` | `/api/emotions` | Classified facial expressions |
+| `GET` | `/api/gestures` | Classified hand gestures |
+| `GET` | `/api/audio/events` | Recent acoustic events |
+| `POST` | `/api/audio/control` | Start / stop microphone monitoring |
+| `GET` | `/ws` | WebSocket telemetry push (analysis results included) |
 
 ---
 
@@ -139,11 +194,17 @@ src/rvm/
   analysis/   quality.py      PSNR, SSIM
               detect.py       MotionDetector, FaceDetector
               track.py        regions_from_mask, CentroidTracker
+              recognition.py  FaceRecognizer, EmotionRecognizer (MediaPipe)
+              gesture.py      GestureRecognizer (MediaPipe HandLandmarker)
+              models.py       locate the .task model bundles
+  audio/      capture.py      AudioCapture — microphone in a worker thread
+              analysis.py     AudioAnalyzer — acoustic event rules
   server/     source.py       CameraSource, SyntheticSource
               session.py      StreamSession — one encode, many viewers
               recorder.py     FrameRecorder — timestamped JPEG clips
               app.py          aiohttp REST + WebSocket server
   web/        index.html, app.js, style.css
+models/       face_landmarker.task, hand_landmarker.task, haarcascades/
 ```
 
 ---
@@ -181,7 +242,10 @@ under 2 ms (median) instead of timing out.
 the number a user cares about is distortion. That loop is closed by measuring PSNR against
 the encoder's own reconstruction — the picture the receiver actually displays.
 
-**Known limitations (stated plainly):** video only, no audio; the custom codec is a
+**Known limitations (stated plainly):** video is streamed to the viewer; audio is
+captured and analysed locally for acoustic events but is not coded or streamed,
+so a remote viewer does not receive audio — it does see the event labels in the
+dashboard. The custom codec is a
 teaching implementation and is considerably less efficient than H.264, which adds larger
 transform blocks, multiple reference frames, deblocking and intra prediction; frame rate is
 bounded by Python rather than by the algorithm, and 640×480 is consequently not real time.

@@ -1,10 +1,13 @@
 """Tests for the capture sources and the multi-client stream session."""
 
 import asyncio
+import threading
+import time
 
 import numpy as np
 import pytest
 
+from rvm.audio import AudioCapture
 from rvm.server.session import StreamSession
 from rvm.server.source import CameraSource, SyntheticSource, open_source
 
@@ -262,3 +265,217 @@ def test_session_rejects_a_configuration_it_cannot_deliver():
 
     with pytest.raises(ValueError, match="bitrate"):
         session.update_config(bitrate=-1)
+
+# --------------------------------------------------------------------------
+# Optional analysis wiring
+# --------------------------------------------------------------------------
+
+
+def test_analysis_is_off_unless_it_is_asked_for():
+    """The analysers cost tens of ms per picture, so they are opt-in."""
+    session = make_session()
+
+    features = session.features()
+
+    assert features["enabled"] is False
+    assert features["face_recognition"] is False
+    assert features["emotion_recognition"] is False
+    assert features["gesture_recognition"] is False
+    assert session.status()["analysis"]["ready"] is False
+
+
+def test_status_carries_the_analysis_sections_even_when_idle():
+    session = make_session()
+    asyncio.run(session.run_once())
+
+    status = session.status()
+
+    for key, field in (
+        ("face_identities", "identities"),
+        ("emotions", "emotions"),
+        ("gestures", "gestures"),
+    ):
+        assert status[key]["count"] == 0
+        assert status[key][field] == []
+    assert status["audio_events"] == 0
+    assert status["audio_last"] is None
+
+
+def test_analysis_stays_idle_until_the_models_are_loaded():
+    """Enabling analysis must not block the encode thread on a model load."""
+    session = make_session()
+    session.analysis_enabled = True  # warm-up deliberately not started
+
+    asyncio.run(session.run_once())
+
+    assert session.status()["gestures"]["count"] == 0
+    assert session.status()["emotions"]["count"] == 0
+    assert session.features()["ready"] is False
+
+
+def test_analysis_status_matches_the_telemetry_shape():
+    session = make_session()
+    asyncio.run(session.run_once())
+
+    analysis = session.analysis_status()
+    status = session.status()
+
+    assert analysis["tracks"] == {"count": len(status["tracks"]), "tracks": status["tracks"]}
+    assert analysis["gestures"] == status["gestures"]
+    assert set(analysis) == {
+        "tracks",
+        "face_identities",
+        "emotions",
+        "gestures",
+        "audio",
+        "features",
+    }
+
+
+def fake_start(self):
+    self._running = True
+    return True
+
+
+def fake_stop(self):
+    self._running = False
+
+
+def test_audio_control_reports_whether_the_microphone_is_running(monkeypatch):
+    monkeypatch.setattr(AudioCapture, "start", fake_start)
+    monkeypatch.setattr(AudioCapture, "stop", fake_stop)
+    session = make_session()
+    try:
+        assert session.set_audio_enabled(True) is True
+        assert session.audio_enabled is True
+
+        assert session.set_audio_enabled(False) is False
+        assert session.audio_enabled is False
+    finally:
+        session.close()
+
+
+def test_audio_monitoring_does_not_depend_on_video_analysis(monkeypatch):
+    """``--no-analysis`` must not leave a running microphone that never reports.
+
+    Audio is its own switch.  Gating it behind the video analysis flag made
+    ``POST /api/audio/control`` answer "running" while no event could ever be
+    produced.
+    """
+    monkeypatch.setattr(AudioCapture, "start", fake_start)
+    session = make_session()  # analysis off
+    session.set_audio_enabled(True)
+
+    loud = (0.5 * np.sin(2 * np.pi * 100 * np.arange(1024) / 16000.0) * 32767).astype(np.int16)
+    monkeypatch.setattr(session.audio_capture, "read", lambda timeout=0.0: loud)
+
+    try:
+        asyncio.run(session.run_once())
+        audio = session.analysis_status()["audio"]
+        assert session.features()["enabled"] is False, "analysis stays off"
+        assert audio["running"] is True
+        assert audio["count"] >= 1, "audio must be drained outside the analysis gate"
+    finally:
+        session.close()
+
+
+def test_the_audio_section_of_the_analysis_status_is_shaped_for_the_api():
+    session = make_session()
+
+    assert session.analysis_status()["audio"] == {
+        "count": 0,
+        "events": [],
+        "running": False,
+    }
+
+
+
+def test_a_tick_publishes_all_three_results_as_one_tuple():
+    """``status()`` must never report a half-applied tick.
+
+    The three analysers finish at different times; publishing them field by
+    field let a reader see face results from one tick next to gestures from the
+    previous one.  One tuple assignment is the whole fix, so the test pins the
+    shape: whatever ``_analyse`` produced this tick is what readers see.
+    """
+
+    class Stub:
+        count = 0
+        state = "mediapipe"
+
+        def __init__(self):
+            self.marker = id(self)
+
+        def snapshot(self):
+            return {"count": 0, "state": self.state, "marker": self.marker}
+
+    session = make_session()
+    session.analysis_enabled = True
+    session._models_ready.set()
+    session.analysis_interval = 0.0
+
+    stubs = (Stub(), Stub(), Stub())
+    session.face_recognizer.recognize = lambda frame: stubs[0]
+    session.emotion_recognizer.detect = lambda frame: stubs[1]
+    session.gesture_recognizer.detect = lambda frame: stubs[2]
+
+    session._analyse(np.zeros((8, 8, 3), dtype=np.uint8))
+
+    published = session._analysis_view
+    assert published == stubs
+    status = session.status()
+    assert status["face_identities"]["marker"] == stubs[0].marker
+    assert status["emotions"]["marker"] == stubs[1].marker
+    assert status["gestures"]["marker"] == stubs[2].marker
+
+def test_features_does_not_probe_the_microphone():
+    """``status()`` calls features() twice a second; it must not open PortAudio."""
+    session = make_session()
+    capture = session._audio_capture()
+    assert capture.availability is None
+
+    features = session.features()
+
+    assert features["audio_available"] is None
+    assert capture._pyaudio is None, "features() must not construct PyAudio"
+
+
+def test_the_audio_capture_is_created_once_under_concurrency(monkeypatch):
+    """Two AudioCapture objects mean two PyAudio contexts and a crash.
+
+    Construction is slowed down so the window is wide enough for eight threads
+    to fall into it; without the lock this test builds eight objects.
+    """
+    import rvm.audio.capture as capture_module
+
+    original_init = capture_module.AudioCapture.__init__
+    constructions = []
+    guard = threading.Lock()
+
+    def slow_init(self, config=None):
+        original_init(self, config)
+        with guard:
+            constructions.append(1)
+        time.sleep(0.02)
+
+    monkeypatch.setattr(capture_module.AudioCapture, "__init__", slow_init)
+    session = make_session()
+    # A timeout so a thread that never starts cannot park the other seven here forever.
+    barrier = threading.Barrier(8, timeout=30)
+
+
+    created = []
+
+    def grab():
+        barrier.wait()
+        created.append(session._audio_capture())
+
+    threads = [threading.Thread(target=grab) for _ in range(8)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert len(constructions) == 1, "the capture must be constructed once"
+    assert len(created) == 8, "every thread must have reached the capture"
+    assert len({id(capture) for capture in created}) == 1, "every caller gets the same object"
