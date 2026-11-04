@@ -500,7 +500,7 @@ class StreamSession:
             "gesture_recognition": ready and self.gesture_recognizer.available,
             "audio_monitoring": self.audio_enabled,
             "audio_available": (
-                None if self.audio_capture is None else self.audio_capture.available
+                None if self.audio_capture is None else self.audio_capture.availability
             ),
         }
 

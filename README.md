@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 491 tests, ~25s
+.\.venv\Scripts\python.exe -m pytest          # 492 tests, ~20s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -90,7 +90,7 @@ wheels dropped the Haar cascade API and data that face detection runs on.
 
 The analysers run on a 0.5 s cadence rather than per picture: one analysis pass
 costs 19–35 ms against 34–49 ms to encode a frame on the demonstration laptop, so
-per-frame analysis would add roughly a third to every picture just to refresh a
+per-frame analysis would add about 40 % to every picture just to refresh a
 dashboard panel. A tick runs inside the encode thread, which makes the frame it
 lands on about 17 ms slower (measured 160×128: 30.7 → 47.3 ms median); end-to-end
 frame rate measured 13.25 vs 13.33 fps on a clean machine and 9.6 vs 10.4 fps on
@@ -314,5 +314,4 @@ Five to seven minutes, in the order that shows the most with the least clicking.
 - [ ] Second PC connects over the LAN address, not `localhost`, and the firewall rule is in place.
 - [ ] `mini-project/EIE4428-RVM.zip` rebuilt with `tools/make_zip.py`, which unpacks its own output and runs the test suite there.
 - [ ] Test recordings containing private material deleted before zipping.
-
 

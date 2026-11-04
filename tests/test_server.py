@@ -387,3 +387,41 @@ def test_the_audio_section_of_the_analysis_status_is_shaped_for_the_api():
     }
 
 
+
+def test_a_tick_publishes_all_three_results_as_one_tuple():
+    """``status()`` must never report a half-applied tick.
+
+    The three analysers finish at different times; publishing them field by
+    field let a reader see face results from one tick next to gestures from the
+    previous one.  One tuple assignment is the whole fix, so the test pins the
+    shape: whatever ``_analyse`` produced this tick is what readers see.
+    """
+
+    class Stub:
+        count = 0
+        state = "mediapipe"
+
+        def __init__(self):
+            self.marker = id(self)
+
+        def snapshot(self):
+            return {"count": 0, "state": self.state, "marker": self.marker}
+
+    session = make_session()
+    session.analysis_enabled = True
+    session._models_ready.set()
+    session.analysis_interval = 0.0
+
+    stubs = (Stub(), Stub(), Stub())
+    session.face_recognizer.recognize = lambda frame: stubs[0]
+    session.emotion_recognizer.detect = lambda frame: stubs[1]
+    session.gesture_recognizer.detect = lambda frame: stubs[2]
+
+    session._analyse(np.zeros((8, 8, 3), dtype=np.uint8))
+
+    published = session._analysis_view
+    assert published == stubs
+    status = session.status()
+    assert status["face_identities"]["marker"] == stubs[0].marker
+    assert status["emotions"]["marker"] == stubs[1].marker
+    assert status["gestures"]["marker"] == stubs[2].marker

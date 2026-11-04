@@ -65,20 +65,78 @@ def test_capture_reports_unavailable_when_no_device_can_be_opened(monkeypatch):
     capture.close()
 
 
-def test_the_capture_loop_clears_the_running_flag_when_it_ends():
-    """A dead device must not leave "running" true forever."""
+class FakeStream:
+    """A PortAudio stream whose device is gone the moment it is opened."""
 
-    class DeadStream:
-        def is_active(self):
-            return False
+    def __init__(self):
+        self.closed = False
 
+    def is_active(self):
+        return False
+
+    def read(self, size, exception_on_overflow=True):
+        raise OSError("device gone")
+
+    def stop_stream(self):
+        pass
+
+    def close(self):
+        self.closed = True
+
+
+class FakePyAudio:
+    def __init__(self, stream):
+        self.stream = stream
+
+    def open(self, **kwargs):
+        return self.stream
+
+    def get_default_input_device_info(self):
+        return {"index": 0, "name": "fake"}
+
+    def terminate(self):
+        pass
+
+
+def capture_with(stream):
     capture = AudioCapture()
-    capture._stream = DeadStream()
-    capture._running = True
+    capture._pyaudio = FakePyAudio(stream)
+    capture._available = True
+    return capture
 
-    capture._capture_loop()
 
+def test_start_does_not_leave_a_dead_capture_looking_alive():
+    """Device opens and dies at once: the flag must not end up True.
+
+    Driving this through start() rather than poking the loop directly is what
+    makes it a regression test: the bug was the ordering of the flag and the
+    thread start inside start().
+    """
+    capture = capture_with(FakeStream())
+
+    assert capture.start() is True
+    for _ in range(100):
+        if capture._capture_thread is not None and not capture._capture_thread.is_alive():
+            break
+        time.sleep(0.01)
+
+    assert capture._capture_thread is not None
+    assert not capture._capture_thread.is_alive()
     assert capture.running is False
+    assert capture.read() is None
+    capture.stop()
+
+
+def test_stop_releases_a_stream_that_died_on_its_own():
+    """A dead loop leaves the stream open; stop() must close it anyway."""
+    stream = FakeStream()
+    capture = capture_with(stream)
+    capture._stream = stream
+    capture._running = False  # what the loop's finally leaves behind
+
+    capture.stop()
+
+    assert stream.closed is True
 
 
 def test_stopping_and_clearing_an_idle_capture_does_not_raise():

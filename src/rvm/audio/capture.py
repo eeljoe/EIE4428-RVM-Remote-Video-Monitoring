@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from queue import Empty, Full, Queue
-from threading import Event, Thread
+from threading import Event, RLock, Thread
 from typing import Optional
 
 import numpy as np
@@ -43,17 +43,36 @@ class AudioCapture:
         self._running = False
         self._failure: str | None = None
         self._available: bool | None = None
+        # Two threads constructing pyaudio.PyAudio() at once kills the process
+        # with an access violation rather than raising, so the probe is
+        # serialised and the result double-checked.  Reentrant because
+        # available() holds it while _probe_device() calls _init_pyaudio(),
+        # which takes it again.
+        self._probe_lock = RLock()
 
     @property
     def available(self) -> bool:
         """Whether a microphone can actually be opened on this machine.
 
-        Importing PyAudio is not the same as having an input device: a server
-        with no sound card imports it fine and fails at ``open()``.  The probe
-        is cached because it costs a PortAudio round trip.
+        Blocking on the first call (a PortAudio round trip, ~300 ms), so it must
+        be called off the event loop.  Concurrent callers are serialised: two
+        threads constructing ``pyaudio.PyAudio()`` at the same time crashes the
+        process with an access violation, not an exception.
         """
         if self._available is None:
-            self._available = self._probe_device()
+            with self._probe_lock:
+                if self._available is None:
+                    self._available = self._probe_device()
+        return self._available
+
+    @property
+    def availability(self) -> bool | None:
+        """What has been probed so far, without probing.
+
+        For callers on the event loop: ``None`` means "nobody has looked yet",
+        which is an answer, whereas calling :attr:`available` there would block
+        and race the thread that is already looking.
+        """
         return self._available
 
     def _probe_device(self) -> bool:
@@ -70,7 +89,7 @@ class AudioCapture:
     @property
     def unavailable_reason(self) -> str | None:
         if self._available is None:
-            self._available = self._probe_device()
+            self.available
         return self._failure
 
     @property
@@ -83,15 +102,18 @@ class AudioCapture:
         if self._failure is not None:
             return False
 
-        try:
-            import pyaudio
+        with self._probe_lock:
+            if self._pyaudio is not None:
+                return True
+            try:
+                import pyaudio
 
-            self._pyaudio = pyaudio.PyAudio()
-            return True
-        except Exception as exc:  # noqa: BLE001 - missing module or no device
-            self._failure = f"{type(exc).__name__}: {exc}"
-            log.info("audio capture unavailable: %s", self._failure)
-            return False
+                self._pyaudio = pyaudio.PyAudio()
+                return True
+            except Exception as exc:  # noqa: BLE001 - missing module or no device
+                self._failure = f"{type(exc).__name__}: {exc}"
+                log.info("audio capture unavailable: %s", self._failure)
+                return False
 
     def start(self) -> bool:
         """Open the device and begin capturing; returns whether it is running.
@@ -138,22 +160,27 @@ class AudioCapture:
 
 
     def stop(self) -> None:
-        """Stop capturing and close the device."""
-        if not self._running:
-            return
+        """Stop capturing and release the device.
 
+        No early return on ``not self._running``: a capture loop that died on
+        its own leaves the flag False with the PortAudio stream still open, and
+        returning there leaks one handle per unplugged device.  The join is
+        skipped when the thread never started, which ``start()`` can be
+        interrupted between.
+        """
         self._stop_event.set()
-        if self._capture_thread is not None:
-            self._capture_thread.join(timeout=2.0)
-            self._capture_thread = None
 
-        if self._stream is not None:
+        thread, self._capture_thread = self._capture_thread, None
+        if thread is not None and thread.ident is not None:
+            thread.join(timeout=2.0)
+
+        stream, self._stream = self._stream, None
+        if stream is not None:
             try:
-                self._stream.stop_stream()
-                self._stream.close()
+                stream.stop_stream()
+                stream.close()
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
-            self._stream = None
 
         self._running = False
 
@@ -208,3 +235,4 @@ class AudioCapture:
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
             self._pyaudio = None
+

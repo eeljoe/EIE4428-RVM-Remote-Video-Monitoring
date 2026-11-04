@@ -27,18 +27,10 @@ MediaPipe depends on `opencv-contrib-python`, and it installs into the same
 `cv2/` directory as `opencv-python-headless`. Whichever is installed last wins,
 and uninstalling either one deletes files the survivor's RECORD still claims —
 after which `import cv2` fails with an `AttributeError` that says nothing about
-packaging. That is why the order above matters: uninstalling headless *after*
-contrib is installed reproduces the broken state every time, while removing it
-first leaves contrib as the single provider.
-
-**Keep exactly one OpenCV distribution.** MediaPipe depends on
-`opencv-contrib-python`, and it installs into the same `cv2/` directory as
-`opencv-python-headless`. Whichever is installed last wins, and uninstalling
-either one deletes files the survivor's RECORD still claims — after which
-`import cv2` fails with an `AttributeError` that says nothing about packaging.
-pip does not warn about this. The server prints a warning at start-up when it
-finds more than one, and the analysis flow above swaps headless for contrib
-rather than stacking them.
+packaging. pip does not warn about this. That is why the order above matters:
+uninstalling headless *after* contrib is installed reproduces the broken state
+every time, while removing it first leaves contrib as the single provider. The
+server prints a warning at start-up when it finds more than one.
 
 OpenCV is pinned below 5 in both files. The 5.x wheels carry neither the Haar
 cascade data nor, in the main wheel, the cascade API, so face detection
@@ -65,7 +57,8 @@ capture → motion → faces → tracks → [analysis every analysis_interval s]
 The reason is arithmetic. Encoding one 320×240 picture costs 34–49 ms on the
 demonstration laptop; one analysis pass costs 19–35 ms (measured medians: face
 2.4–9.4 ms, expression 2.1–10.3 ms, gesture 14.9–15.1 ms). Running that per
-frame would add roughly a third to every picture to refresh a dashboard panel.
+frame would add about 40 % to every picture (measured 19.6 ms of analysis against a
+48.3 ms encode) to refresh a dashboard panel.
 At the default 0.5 s cadence it is 4–7 % of the encoder's time instead, and the
 panel still updates twice a second.
 
@@ -172,3 +165,4 @@ behaviour is auditable and their cost is bounded.
 - **The first ~2 s of a session report `pending`.** That is the model load, and
   it is deliberately visible instead of being disguised as "off" or "no
   hands".
+
