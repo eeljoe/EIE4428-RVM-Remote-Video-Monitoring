@@ -11,6 +11,7 @@ also satisfies "no long finger extended", so getting the order wrong turns
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from rvm.analysis.gesture import (
     GestureDetection,
@@ -30,17 +31,25 @@ WRIST_Y = 0.9
 THUMB_IP = (0.40, 0.80)
 
 
-def make_hand(extended=(), thumb_extended=True, thumb_above_wrist=True, ok_gap=None):
+def make_hand(
+    extended=(), thumb_extended=True, thumb_above_wrist=True, ok_gap=None, thumb_tip=None
+):
     """Landmarks for a hand whose listed fingers are extended.
 
     Fingertips sit above their knuckles when a finger is extended (smaller y)
-    and below when it is curled.  The thumb is folded sideways, which is why it
-    needs its own argument.
+    and below when it is curled.  The thumb folds across the palm, so it is
+    placed by reach from the wrist rather than by a y-comparison -- a
+    sideways-only fixture would bake in a handedness bias, and the classifier
+    would then only work for one hand.
     """
     points = {0: (0.5, WRIST_Y)}
     points[3] = THUMB_IP
-    thumb_y = 0.70 if thumb_above_wrist else 0.95
-    points[4] = (0.30, thumb_y) if thumb_extended else (0.60, 0.80)
+    if thumb_tip is not None:
+        points[4] = thumb_tip
+    elif thumb_extended:
+        points[4] = (0.30, 0.70) if thumb_above_wrist else (0.30, 0.95)
+    else:
+        points[4] = (0.60, 0.80)
 
     for position, (name, (mcp, tip)) in enumerate(FINGERS.items()):
         x = 0.42 + 0.04 * position
@@ -145,7 +154,7 @@ def test_detection_snapshot_counts_what_it_holds():
     )
     snapshot = detection.snapshot()
     assert snapshot["count"] == 2
-    assert snapshot["detector"] == "mediapipe"
+    assert snapshot["state"] == "mediapipe"
     assert len(snapshot["gestures"]) == 2
 
 
@@ -161,7 +170,7 @@ def test_recognizer_settings_are_configurable():
 def test_detecting_on_a_blank_frame_reports_a_state_and_never_raises():
     detection = GestureRecognizer().detect(np.zeros((120, 160, 3), dtype=np.uint8))
     assert isinstance(detection, GestureDetection)
-    assert detection.detector_name in {
+    assert detection.state in {
         "unavailable",
         "error",
         "no-hands",
@@ -175,3 +184,51 @@ def test_unavailable_reason_explains_a_missing_model_or_dependency():
         assert recognizer.unavailable_reason is None
     else:
         assert isinstance(recognizer.unavailable_reason, str)
+
+def test_a_vertical_thumb_is_thumbs_up_not_a_fist():
+    """The pose the feature is named after: thumb up, fingers curled.
+
+    A sideways-only thumbs test reads this as a closed fist, because the thumb
+    tip does not sit to the left of its joint -- it sits above it.
+    """
+    hand = make_hand(extended=(), thumb_tip=(0.50, 0.60))
+    assert GestureRecognizer()._classify_gesture(hand) is GestureType.THUMBS_UP
+
+
+def test_the_thumb_test_does_not_depend_on_which_hand_it_is():
+    """A mirrored hand must classify the same as the original."""
+    left = make_hand(extended=tuple(FINGERS), thumb_tip=(0.70, 0.70))
+    right = make_hand(extended=tuple(FINGERS), thumb_tip=(0.30, 0.70))
+    recognizer = GestureRecognizer()
+    assert recognizer._classify_gesture(left) is GestureType.OPEN_PALM
+    assert recognizer._classify_gesture(right) is GestureType.OPEN_PALM
+
+
+def test_the_gesture_models_load_and_can_be_closed():
+    """A misspelt option is swallowed into "unavailable"; this is what notices."""
+    pytest.importorskip("mediapipe")
+
+    recognizer = GestureRecognizer()
+    try:
+        assert recognizer.available is True, recognizer.unavailable_reason
+    finally:
+        recognizer.close()
+    assert recognizer.available is False
+
+
+def test_a_missing_model_is_reported_rather_than_raised(tmp_path, monkeypatch):
+    monkeypatch.setenv("RVM_MODELS_DIR", str(tmp_path))
+
+    recognizer = GestureRecognizer()
+
+    assert recognizer.available is False
+    assert "hand_landmarker.task" in (recognizer.unavailable_reason or "")
+
+
+def test_every_named_pose_reports_more_confidence_than_an_unknown_one():
+    recognizer = GestureRecognizer()
+    unknown = recognizer.CONFIDENCE[GestureType.UNKNOWN]
+    for gesture in GestureType:
+        if gesture is not GestureType.UNKNOWN:
+            assert recognizer.CONFIDENCE[gesture] > unknown
+

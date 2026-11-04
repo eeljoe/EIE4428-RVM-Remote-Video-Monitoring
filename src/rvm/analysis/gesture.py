@@ -5,11 +5,18 @@ landmarks: which fingertips sit above their knuckles decides which fingers are
 extended, and the combinations of extended fingers decide the name.  No second
 model is needed beyond the HandLandmarker that produces the landmarks.
 
-One ordering detail is worth stating because it is easy to get wrong: the
-thumb is the only finger whose "extended" test is not a y-comparison
-(it points sideways), so thumb-led poses have to be tested *before* the
-all-fingers-curled case -- otherwise "thumbs up" is reported as a closed fist
-and that branch is unreachable dead code.
+Two details are worth stating because they are easy to get wrong.
+
+The thumb is the only finger whose "extended" test is not a y-comparison: it
+folds across the palm, so it is judged by how far its tip reaches from the
+wrist compared with its own joint.  A sideways (handedness-dependent)
+comparison reads a vertical thumbs-up as a fist, on a mirrored camera it
+inverts, and it is exactly the pose the feature exists to recognise.
+
+Thumb-led poses must then be tested *before* the all-fingers-curled case,
+because "no long finger extended" is true for a thumbs-up as well -- order it
+first and the fist rule swallows the gesture, leaving the thumb branches
+unreachable dead code.
 """
 
 from __future__ import annotations
@@ -22,6 +29,13 @@ from typing import List, Optional, Sequence, Tuple
 import numpy as np
 
 from .models import model_path
+from .states import (
+    STATE_DISABLED,
+    STATE_ERROR,
+    STATE_NO_HANDS,
+    STATE_RUNNING,
+    STATE_UNAVAILABLE,
+)
 
 __all__ = [
     "GestureType",
@@ -32,13 +46,6 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-# Reported in place of a detector name when there is nothing to report.
-STATE_DISABLED = "disabled"
-STATE_UNAVAILABLE = "unavailable"
-STATE_ERROR = "error"
-STATE_NO_HANDS = "no-hands"
-STATE_RUNNING = "mediapipe"
-
 # Landmark indices from the MediaPipe hand topology.
 WRIST = 0
 THUMB_IP, THUMB_TIP = 3, 4
@@ -47,7 +54,7 @@ MIDDLE_MCP, MIDDLE_TIP = 9, 12
 RING_MCP, RING_TIP = 13, 16
 PINKY_MCP, PINKY_TIP = 17, 20
 
-THUMB_SIDEWAYS_MARGIN = 0.02
+THUMB_REACH_RATIO = 1.15
 OK_SIGN_MAX_GAP = 0.05
 
 
@@ -89,7 +96,7 @@ class GestureDetection:
     """Collection of detected gestures in one picture."""
 
     gestures: List[HandGesture] = field(default_factory=list)
-    detector_name: str = STATE_DISABLED
+    state: str = STATE_DISABLED
 
     @property
     def count(self) -> int:
@@ -99,7 +106,7 @@ class GestureDetection:
         return {
             "count": self.count,
             "gestures": [gesture.snapshot() for gesture in self.gestures],
-            "detector": self.detector_name,
+            "state": self.state,
         }
 
 
@@ -107,6 +114,21 @@ class GestureRecognizer:
     """Classify hand gestures with a MediaPipe HandLandmarker."""
 
     _model_file = "hand_landmarker.task"
+
+    #: Per-pose confidence.  Fixed values, not measurements: the landmarker
+    #: reports detection confidence, not classification confidence, so a
+    #: made-up precise number would overstate what the rule table knows.  An
+    #: unrecognised pose must not look as confident as a named one.
+    CONFIDENCE = {
+        GestureType.OPEN_PALM: 0.9,
+        GestureType.CLOSED_FIST: 0.9,
+        GestureType.POINTING: 0.85,
+        GestureType.PEACE: 0.85,
+        GestureType.THUMBS_UP: 0.8,
+        GestureType.THUMBS_DOWN: 0.8,
+        GestureType.OK_SIGN: 0.75,
+        GestureType.UNKNOWN: 0.5,
+    }
 
     def __init__(
         self,
@@ -184,10 +206,11 @@ class GestureRecognizer:
             label = "Unknown"
             if result.handedness and index < len(result.handedness):
                 label = result.handedness[index][0].category_name
+            gesture = self._classify_gesture(hand_landmarks)
             gestures.append(
                 HandGesture(
-                    gesture=self._classify_gesture(hand_landmarks),
-                    confidence=self._confidence_for(hand_landmarks),
+                    gesture=gesture,
+                    confidence=self.CONFIDENCE[gesture],
                     hand_label=label,
                     bbox=self._bbox(hand_landmarks, width, height),
                     landmarks=[(lm.x, lm.y) for lm in hand_landmarks],
@@ -205,15 +228,26 @@ class GestureRecognizer:
 
     @staticmethod
     def _extended_fingers(hand_landmarks) -> dict[str, bool]:
-        """Which fingers are extended, judged by fingertip vs knuckle.
+        """Which fingers are extended.
 
-        The thumb is compared sideways because it folds across the palm rather
-        than downwards, and on a mirrored image (a selfie camera) that sideways
-        comparison reverses -- which is why the thumb result is reported
-        separately and only used for poses that do not need its direction.
+        The four long fingers are read as "fingertip above its knuckle".  The
+        thumb folds *across* the palm instead of down, so its test is reach:
+        an extended thumb's tip is farther from the wrist than its own
+        interphalangeal joint, a folded one tucks back toward the palm.  A
+        handedness-dependent sideways comparison would read a vertical
+        thumbs-up as a fist -- the pose the feature is named after.
+
+        The long-finger convention assumes roughly upright hands, which is
+        stated as a limitation in ``docs/FEATURES.md``.
         """
+        wrist = hand_landmarks[WRIST]
+        thumb_tip = hand_landmarks[THUMB_TIP]
+        thumb_joint = hand_landmarks[THUMB_IP]
+        reach = np.hypot(thumb_tip.x - wrist.x, thumb_tip.y - wrist.y)
+        folded_reach = np.hypot(thumb_joint.x - wrist.x, thumb_joint.y - wrist.y)
+
         return {
-            "thumb": hand_landmarks[THUMB_TIP].x < hand_landmarks[THUMB_IP].x - THUMB_SIDEWAYS_MARGIN,
+            "thumb": reach > folded_reach * THUMB_REACH_RATIO,
             "index": hand_landmarks[INDEX_TIP].y < hand_landmarks[INDEX_MCP].y,
             "middle": hand_landmarks[MIDDLE_TIP].y < hand_landmarks[MIDDLE_MCP].y,
             "ring": hand_landmarks[RING_TIP].y < hand_landmarks[RING_MCP].y,
@@ -258,22 +292,12 @@ class GestureRecognizer:
 
         return GestureType.UNKNOWN
 
-    @staticmethod
-    def _confidence_for(hand_landmarks) -> float:
-        """Confidence attached to a classified pose.
-
-        These are fixed per pose rather than measured: the landmarker reports
-        detection confidence, not classification confidence, and inventing a
-        precise number for a rule-based classifier would overstate it.
-        """
-        return 0.8
-
-    def reset(self) -> None:
-        """Release the underlying landmarker so the next call reloads it."""
-        if self._hands is not None:
+    def close(self) -> None:
+        """Release the landmarker and stop reporting availability."""
+        hands, self._hands = self._hands, None
+        self._failure = "closed"
+        if hands is not None:
             try:
-                self._hands.close()
+                hands.close()
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
-        self._hands = None
-        self._failure = None

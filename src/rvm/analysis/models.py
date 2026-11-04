@@ -1,13 +1,21 @@
-"""Locate the MediaPipe ``.task`` model bundles the analysers need.
+"""Locate the MediaPipe ``.task`` model bundles and the Haar cascade.
 
-The models are large binaries (3.7 MB and 7.8 MB) that ship next to the source
-tree rather than inside the package, so the locator has to work for a checkout
-and for an installed copy.  It searches, in order:
+The models are large binaries (3.7 MB, 7.8 MB and a 0.9 MB cascade) that live
+next to the source tree rather than inside the package, so the locator has two
+jobs and one honest limitation.
 
-1. ``$RVM_MODELS_DIR`` -- an explicit override, which is the escape hatch for
-   a deployed copy that does not keep the repository layout;
+It searches, in order:
+
+1. ``$RVM_MODELS_DIR`` -- an explicit override;
 2. ``models/<name>`` in any parent of this file, which is what a source
    checkout looks like.
+
+The limitation: the built wheel does **not** carry ``models/`` (only
+``rvm/web`` is declared as package data, because a 12 MB model file inside a
+wheel is not something an installer should spring on someone).  A deployment
+that installs the package rather than using the checkout therefore has to set
+``RVM_MODELS_DIR``; without it every analyser reports ``unavailable`` with that
+reason, which is the intended failure.
 
 A missing file raises :class:`FileNotFoundError`; the analysers turn that into
 "unavailable" rather than crashing the stream, because a monitoring system that

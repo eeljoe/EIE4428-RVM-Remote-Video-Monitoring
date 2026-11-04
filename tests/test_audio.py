@@ -49,12 +49,36 @@ def test_capture_starts_out_stopped():
     assert capture.read(timeout=0.01) is None
 
 
-def test_capture_degrades_quietly_without_a_microphone():
+def test_capture_reports_unavailable_when_no_device_can_be_opened(monkeypatch):
+    """No sound card: available is false, start refuses, nothing opens.
+
+    The device probe is replaced so the test never touches real hardware -- a
+    unit test that opens the microphone holds it for the life of the process.
+    """
     capture = AudioCapture()
-    assert isinstance(capture.available, bool)
-    if not capture.available:
-        assert isinstance(capture.unavailable_reason, str)
-    assert capture.start() in (True, False)
+    monkeypatch.setattr(capture, "_probe_device", lambda: False)
+    capture._available = None
+
+    assert capture.available is False
+    assert capture.start() is False
+    assert capture.running is False
+    capture.close()
+
+
+def test_the_capture_loop_clears_the_running_flag_when_it_ends():
+    """A dead device must not leave "running" true forever."""
+
+    class DeadStream:
+        def is_active(self):
+            return False
+
+    capture = AudioCapture()
+    capture._stream = DeadStream()
+    capture._running = True
+
+    capture._capture_loop()
+
+    assert capture.running is False
 
 
 def test_stopping_and_clearing_an_idle_capture_does_not_raise():
@@ -62,6 +86,7 @@ def test_stopping_and_clearing_an_idle_capture_does_not_raise():
     capture.stop()
     capture.clear_buffer()
     capture.close()
+    assert capture.running is False
 
 
 # --------------------------------------------------------------------------
@@ -169,10 +194,27 @@ def test_silence_on_its_own_says_nothing():
     assert analyzer.analyze(SILENCE) == []
 
 
-def test_speech_is_moderate_energy_with_a_high_crossing_rate():
+def test_speech_needs_a_few_chunks_in_a_row():
+    """One speech-shaped chunk is a noisy room, not someone talking.
+
+    The microphone's own noise floor sits in the speech band: without this
+    rule a quiet room produced an event every other frame.
+    """
     analyzer = AudioAnalyzer()
-    events = analyzer.analyze(noise(amplitude=0.01))
-    assert [event.event_type for event in events] == [EventType.SPEECH]
+    chunk = noise(amplitude=0.01)
+
+    assert analyzer.analyze(chunk) == []
+    assert analyzer.analyze(chunk) == []
+    assert [event.event_type for event in analyzer.analyze(chunk)] == [EventType.SPEECH]
+
+
+def test_the_speech_streak_restarts_after_a_quiet_chunk():
+    analyzer = AudioAnalyzer()
+    analyzer.analyze(noise(amplitude=0.01))
+    analyzer.analyze(noise(amplitude=0.01))
+    analyzer.analyze(SILENCE)
+
+    assert analyzer.analyze(noise(amplitude=0.01)) == []
 
 
 def test_int16_samples_are_scaled_before_analysis():
@@ -208,3 +250,4 @@ def test_reset_forgets_the_history():
     status = analyzer.get_status()
     assert status["frames_analyzed"] == 0
     assert status["history_length"] == 0
+

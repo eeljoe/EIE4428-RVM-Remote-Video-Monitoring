@@ -361,11 +361,13 @@ async def handle_audio_control(request: web.Request) -> web.Response:
         body = await request.json()
     except (ValueError, TypeError):
         raise web.HTTPBadRequest(text="expected a JSON body")
-    if not isinstance(body, dict) or "enabled" not in body:
+    if not isinstance(body, dict) or not isinstance(body.get("enabled"), bool):
         raise web.HTTPBadRequest(text='expected {"enabled": true|false}')
 
-    requested = bool(body["enabled"])
-    running = session.set_audio_enabled(requested)
+    requested = body["enabled"]
+    # Opening a sound device takes hundreds of milliseconds; doing it on the
+    # event loop stalls the stream and the telemetry push for that long.
+    running = await asyncio.to_thread(session.set_audio_enabled, requested)
     capture = session.audio_capture
     return web.json_response(
         {
@@ -453,6 +455,31 @@ def build_app(**kwargs) -> web.Application:
     return create_app(**kwargs)
 
 
+def _opencv_distributions() -> list[str]:
+    """The OpenCV distributions installed alongside each other, sorted.
+
+    They all own a ``cv2`` directory, so two of them fight over the same files:
+    whichever installs last wins, and uninstalling either one deletes files the
+    survivor's RECORD still claims.  Pip does not warn.  This is worth one line
+    at start-up because the failure it causes (a broken ``cv2`` import) does
+    not look like a packaging problem.
+    """
+    from importlib.metadata import distributions
+
+    known = {
+        "opencv-python",
+        "opencv-python-headless",
+        "opencv-contrib-python",
+        "opencv-contrib-python-headless",
+    }
+    found = {
+        str(dist.metadata["Name"]).lower()
+        for dist in distributions()
+        if str(dist.metadata["Name"] or "").lower() in known
+    }
+    return sorted(found)
+
+
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
     import argparse
 
@@ -476,6 +503,16 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
         help="skip the optional face / gesture / audio analysers",
     )
     args = parser.parse_args(argv)
+
+    duplicates = _opencv_distributions()
+    if len(duplicates) > 1:
+        print(
+            "warning: several OpenCV distributions are installed "
+            f"({', '.join(duplicates)}); they all own the cv2 directory and can "
+            "corrupt each other. Keep exactly one -- install the optional "
+            "analysers with requirements-analysis.txt and remove the other build.",
+            flush=True,
+        )
 
     # The runner is driven explicitly rather than through web.run_app, which
     # installs console signal handlers that misbehave when the process is

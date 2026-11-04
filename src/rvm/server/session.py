@@ -30,6 +30,7 @@ from pathlib import Path
 
 import numpy as np
 
+from ..analysis import states
 from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
 from ..analysis.gesture import GestureDetection, GestureRecognizer
 from ..analysis.recognition import (
@@ -142,11 +143,15 @@ class StreamSession:
         self.gesture_recognizer = GestureRecognizer()
         self.audio_analyzer = AudioAnalyzer()
         self.audio_capture: AudioCapture | None = None
-        self._face_identities = FaceRecognition()
-        self._emotions = EmotionDetection()
-        self._gestures = GestureDetection()
+        # A freshly enabled analyser has not seen a picture yet: "pending", not
+        # "disabled", or the dashboard cannot tell "not started" from "off".
+        initial_state = states.STATE_PENDING if analysis else states.STATE_DISABLED
+        self._face_identities = FaceRecognition([], initial_state)
+        self._emotions = EmotionDetection([], initial_state)
+        self._gestures = GestureDetection([], initial_state)
         self._audio_events: list[AudioEvent] = []
         self._models_ready = threading.Event()
+        self._warmup: threading.Thread | None = None
         self._analysis_due = 0.0
 
         self.stats = StreamStats(window_seconds=4.0)
@@ -286,6 +291,7 @@ class StreamSession:
         self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
 
         self._analyse(frame)
+        self._drain_audio()
 
         encoded = self.encoder.encode(frame)
 
@@ -364,9 +370,18 @@ class StreamSession:
                     recognizer.available  # noqa: B018 - forces the load
                 except Exception:  # noqa: BLE001 - a missing model is not fatal
                     pass
+            # Probe the microphone here too: opening PortAudio costs ~300 ms
+            # and doing it from ``status()`` would stall the telemetry push.
+            try:
+                self._audio_capture().available
+            except Exception:  # noqa: BLE001 - no audio is not fatal either
+                pass
             self._models_ready.set()
 
-        threading.Thread(target=warm_up, name="rvm-model-warmup", daemon=True).start()
+        self._warmup = threading.Thread(
+            target=warm_up, name="rvm-model-warmup", daemon=True
+        )
+        self._warmup.start()
 
     def _analyse(self, frame: np.ndarray) -> None:
         """Run the optional analysers on a cadence rather than per picture.
@@ -387,22 +402,33 @@ class StreamSession:
         self._face_identities = self.face_recognizer.recognize(frame)
         self._emotions = self.emotion_recognizer.detect(frame)
         self._gestures = self.gesture_recognizer.detect(frame)
-        self._drain_audio()
 
     def _drain_audio(self) -> None:
-        """Move captured audio into events, a bounded number of chunks at a time."""
+        """Move captured audio into events, a bounded number of chunks at a time.
+
+        Deliberately *not* behind the analysis gate: audio monitoring is a
+        separate switch.  Gating it there made ``POST /api/audio/control``
+        report a running microphone that could never produce an event.
+        """
         capture = self.audio_capture
         if capture is None or not capture.running:
             return
 
+        # Rebind rather than mutate: ``status()`` slices this list from another
+        # thread, and an in-place ``extend`` can hand it a half-updated list.
+        events = list(self._audio_events)
         for _ in range(AUDIO_CHUNKS_PER_TICK):
             chunk = capture.read(timeout=0.0)
             if chunk is None:
                 break
-            self._audio_events.extend(self.audio_analyzer.analyze(chunk))
+            events.extend(self.audio_analyzer.analyze(chunk))
+        self._audio_events = events[-AUDIO_EVENT_LIMIT:]
 
-        if len(self._audio_events) > AUDIO_EVENT_LIMIT:
-            del self._audio_events[:-AUDIO_EVENT_LIMIT]
+    def _audio_capture(self) -> AudioCapture:
+        """The microphone, created on first use so a headless run pays nothing."""
+        if self.audio_capture is None:
+            self.audio_capture = AudioCapture()
+        return self.audio_capture
 
     @property
     def audio_enabled(self) -> bool:
@@ -410,21 +436,33 @@ class StreamSession:
         return self.audio_capture is not None and self.audio_capture.running
 
     def set_audio_enabled(self, enabled: bool) -> bool:
-        """Start or stop audio monitoring; returns whether it is running."""
+        """Start or stop audio monitoring; returns whether it is running.
+
+        The capture is created even for ``enabled=False`` so the caller gets a
+        real answer about the device instead of "never looked".
+        """
+        capture = self._audio_capture()
         if enabled:
-            if self.audio_capture is None:
-                self.audio_capture = AudioCapture()
-            self.audio_capture.start()
-        elif self.audio_capture is not None:
-            self.audio_capture.stop()
+            if capture.start():
+                # A fresh start is a fresh measurement: leftover RMS history
+                # would let the first chunk of a new session look like the
+                # continuation of an alarm.
+                self.audio_analyzer.reset()
+                self._audio_events = []
+                capture.clear_buffer()
+        else:
+            capture.stop()
         return self.audio_enabled
 
     def features(self) -> dict:
         """Which optional analysers this machine can actually run.
 
-        Availability is reported from the warm-up result rather than by
-        probing: probing would block an HTTP request for the seconds a model
-        takes to load.
+        Availability is reported from what has already been probed rather than
+        by probing here: ``status()`` calls this twice a second, and opening
+        PortAudio or a MediaPipe model on that path would stall the telemetry
+        push for hundreds of milliseconds.  ``audio_available`` is therefore
+        ``None`` until the warm-up thread (or an audio-control request) has
+        looked.
         """
         ready = self.analysis_enabled and self._models_ready.is_set()
         return {
@@ -433,8 +471,10 @@ class StreamSession:
             "face_recognition": ready and self.face_recognizer.available,
             "emotion_recognition": ready and self.emotion_recognizer.available,
             "gesture_recognition": ready and self.gesture_recognizer.available,
-            "audio_monitoring": self.audio_capture is not None
-            and self.audio_capture.available,
+            "audio_monitoring": self.audio_enabled,
+            "audio_available": (
+                None if self.audio_capture is None else self.audio_capture.available
+            ),
         }
 
     def analysis_status(self) -> dict:
@@ -558,4 +598,16 @@ class StreamSession:
         if self.audio_capture is not None:
             self.audio_capture.close()
             self.audio_capture = None
+
+        # The warm-up thread may still be loading models; releasing them while
+        # it runs would race with the loader.
+        if self._warmup is not None and self._warmup.is_alive():
+            self._warmup.join(timeout=5.0)
+        for recognizer in (
+            self.face_recognizer,
+            self.emotion_recognizer,
+            self.gesture_recognizer,
+        ):
+            recognizer.close()
+
         self.source.close()

@@ -1,11 +1,16 @@
 """Face identification and facial-expression analysis.
 
-Both stages ride on the same MediaPipe FaceLandmarker model: it returns 478
-facial landmarks per face and, when asked, a set of ARKit-style blendshape
-scores.  Landmarks give a geometric embedding for "who is this"; blendshapes
-give mouth/brow/eye activations for "what does the face look like".
+Both stages use the same MediaPipe FaceLandmarker *model file*, but each builds
+its own landmarker instance: identification needs landmarks only, expression
+needs blendshapes, and asking one instance for both would still cost one
+inference -- so a face costs two inferences per analysis tick.  That is a
+deliberate trade: two small classes with an honest cost beats one class that
+serves two payload shapes.
 
-Two things this module deliberately does *not* do.
+Landmarks give a geometric embedding for "who is this"; blendshapes give
+mouth/brow/eye activations for "what does the face look like".
+
+Three things this module deliberately does *not* do.
 
 **It does not train anything.**  Identification compares a landmark-derived
 embedding against a small in-memory database.  With an empty database the
@@ -17,6 +22,12 @@ states so the dashboard cannot blur them.
 milliseconds; the session calls it on a cadence (see
 :class:`rvm.server.session.StreamSession`), not on every picture, because the
 video pipeline is the thing being graded.
+
+**It does not report a confidence in any calibrated sense.**  ``1 - distance``
+over a 1434-dimensional landmark vector is a similarity score with a usable
+ordering and an arbitrary scale; the threshold is a distance cut-off.  It is
+reported because a monotone score is still useful on a dashboard, not because
+it is a probability.
 """
 
 from __future__ import annotations
@@ -29,6 +40,14 @@ import cv2
 import numpy as np
 
 from .models import model_path
+from .states import (
+    STATE_DISABLED,
+    STATE_ERROR,
+    STATE_NO_FACES,
+    STATE_NO_KNOWN,
+    STATE_RUNNING,
+    STATE_UNAVAILABLE,
+)
 
 __all__ = [
     "FaceRecognition",
@@ -39,13 +58,8 @@ __all__ = [
 
 log = logging.getLogger(__name__)
 
-# Reported in place of a detector name when there is nothing to report.
-STATE_DISABLED = "disabled"
-STATE_UNAVAILABLE = "unavailable"
-STATE_ERROR = "error"
-STATE_NO_FACES = "no-faces"
-STATE_NO_KNOWN = "no-known-faces"
-STATE_RUNNING = "mediapipe"
+# Reported in place of a detector name when there is nothing to report; the
+# vocabulary lives in :mod:`rvm.analysis.states` so every analyser agrees.
 
 
 def _ensure_rgb(frame: np.ndarray) -> np.ndarray:
@@ -67,7 +81,10 @@ class FaceRecognition:
     identities: List[Tuple[str, float, Tuple[int, int, int, int]]] = field(
         default_factory=list
     )  # (name, confidence, (x, y, w, h))
-    recognizer_name: str = STATE_DISABLED
+    state: str = STATE_DISABLED
+    #: How many faces the landmarker saw, whether or not any matched.  Without
+    #: it "no known faces registered" and "nobody in view" would look the same.
+    seen: int = 0
 
     @property
     def count(self) -> int:
@@ -76,11 +93,12 @@ class FaceRecognition:
     def snapshot(self) -> dict:
         return {
             "count": self.count,
+            "seen": self.seen,
             "identities": [
                 {"name": name, "confidence": round(conf, 3), "bbox": list(bbox)}
                 for name, conf, bbox in self.identities
             ],
-            "recognizer": self.recognizer_name,
+            "state": self.state,
         }
 
 
@@ -91,7 +109,7 @@ class EmotionDetection:
     emotions: List[Tuple[str, float, Tuple[int, int, int, int]]] = field(
         default_factory=list
     )  # (emotion, confidence, (x, y, w, h))
-    detector_name: str = STATE_DISABLED
+    state: str = STATE_DISABLED
 
     @property
     def count(self) -> int:
@@ -104,8 +122,9 @@ class EmotionDetection:
                 {"emotion": emotion, "confidence": round(conf, 3), "bbox": list(bbox)}
                 for emotion, conf, bbox in self.emotions
             ],
-            "detector": self.detector_name,
+            "state": self.state,
         }
+
 
 
 class _FaceLandmarkerOwner:
@@ -157,6 +176,21 @@ class _FaceLandmarkerOwner:
         if self._failure is None and self._model is None:
             self._load_model()
         return self._failure
+
+    def close(self) -> None:
+        """Release the landmarker and stop reporting availability.
+
+        MediaPipe keeps the model in native memory; a server that closes its
+        session without closing this leaves the model resident for the life of
+        the process.
+        """
+        model, self._model = self._model, None
+        self._failure = "closed"
+        if model is not None:
+            try:
+                model.close()
+            except Exception:  # noqa: BLE001 - closing is best effort
+                pass
 
     def _detect(self, frame: np.ndarray):
         """Run the landmarker on one RGB frame, or return ``None``."""
@@ -210,9 +244,11 @@ class FaceRecognizer(_FaceLandmarkerOwner):
             return FaceRecognition([], STATE_ERROR)
 
         if not result.face_landmarks:
-            return FaceRecognition([], STATE_NO_FACES)
+            return FaceRecognition([], STATE_NO_FACES, seen=0)
+
+        seen = len(result.face_landmarks)
         if not self.known_faces:
-            return FaceRecognition([], STATE_NO_KNOWN)
+            return FaceRecognition([], STATE_NO_KNOWN, seen=seen)
 
         height, width = frame.shape[:2]
         identities = []
@@ -220,13 +256,25 @@ class FaceRecognizer(_FaceLandmarkerOwner):
             embedding = self._embedding(face_landmarks)
             if embedding is None:
                 continue
-            name, distance = self._nearest(embedding)
-            confidence = max(0.0, 1.0 - distance)
-            if name is not None and confidence >= self.threshold:
+            name, confidence = self._match(embedding)
+            if name is not None:
                 identities.append(
                     (name, confidence, _boxes_from_landmarks(face_landmarks, width, height))
                 )
-        return FaceRecognition(identities, STATE_RUNNING)
+        return FaceRecognition(identities, STATE_RUNNING, seen=seen)
+
+    def _match(self, embedding: np.ndarray) -> tuple[str | None, float]:
+        """The registered name for *embedding*, or ``None`` when nobody is close.
+
+        Keeping the accept/reject rule here rather than inline makes it
+        testable: the whole point of the threshold is that a face that is
+        merely nearest-but-far is not reported as an identity.
+        """
+        name, distance = self._nearest(embedding)
+        confidence = max(0.0, 1.0 - distance)
+        if name is None or confidence < self.threshold:
+            return None, confidence
+        return name, confidence
 
     def _nearest(self, embedding: np.ndarray) -> tuple[str | None, float]:
         best_name = None

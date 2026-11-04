@@ -24,16 +24,20 @@ function fmtBitrate(bps) {
   return bps + " bps";
 }
 
-/* An analyser that is switched off must not look like one that is broken, and
- * one that is working on an empty scene must not look like either. The state
- * the server reports is what separates those three cases. */
+/* An analyser that is switched off must not look like one that is broken, one
+ * that is still starting must not look like one that is off, and one that is
+ * working on an empty scene must not look like either. The state the server
+ * reports is what separates those cases. */
 function analysisText(result, field, emptyLabel, limit = 3) {
   if (!result) return "—";
-  const state = result.detector || result.recognizer;
+  const state = result.state;
   if (state === "disabled") return "off";
+  if (state === "pending") return "loading";
   if (state === "unavailable") return "unavailable";
   if (state === "error") return "error";
-  if (state === "no-known-faces") return "none registered";
+  if (state === "no-known-faces") {
+    return result.seen ? result.seen + " face, none known" : "no known faces";
+  }
   if (!result.count) return emptyLabel;
   return result[field]
     .slice(0, limit)

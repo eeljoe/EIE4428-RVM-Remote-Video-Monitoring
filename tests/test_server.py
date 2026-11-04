@@ -5,6 +5,7 @@ import asyncio
 import numpy as np
 import pytest
 
+from rvm.audio import AudioCapture
 from rvm.server.session import StreamSession
 from rvm.server.source import CameraSource, SyntheticSource, open_source
 
@@ -329,15 +330,49 @@ def test_analysis_status_matches_the_telemetry_shape():
     }
 
 
-def test_audio_control_reports_whether_the_microphone_is_running():
+def fake_start(self):
+    self._running = True
+    return True
+
+
+def fake_stop(self):
+    self._running = False
+
+
+def test_audio_control_reports_whether_the_microphone_is_running(monkeypatch):
+    monkeypatch.setattr(AudioCapture, "start", fake_start)
+    monkeypatch.setattr(AudioCapture, "stop", fake_stop)
     session = make_session()
     try:
-        running = session.set_audio_enabled(True)
-        assert isinstance(running, bool)
-        assert running == session.audio_enabled
+        assert session.set_audio_enabled(True) is True
+        assert session.audio_enabled is True
 
-        session.set_audio_enabled(False)
+        assert session.set_audio_enabled(False) is False
         assert session.audio_enabled is False
+    finally:
+        session.close()
+
+
+def test_audio_monitoring_does_not_depend_on_video_analysis(monkeypatch):
+    """``--no-analysis`` must not leave a running microphone that never reports.
+
+    Audio is its own switch.  Gating it behind the video analysis flag made
+    ``POST /api/audio/control`` answer "running" while no event could ever be
+    produced.
+    """
+    monkeypatch.setattr(AudioCapture, "start", fake_start)
+    session = make_session()  # analysis off
+    session.set_audio_enabled(True)
+
+    loud = (0.5 * np.sin(2 * np.pi * 100 * np.arange(1024) / 16000.0) * 32767).astype(np.int16)
+    monkeypatch.setattr(session.audio_capture, "read", lambda timeout=0.0: loud)
+
+    try:
+        asyncio.run(session.run_once())
+        audio = session.analysis_status()["audio"]
+        assert session.features()["enabled"] is False, "analysis stays off"
+        assert audio["running"] is True
+        assert audio["count"] >= 1, "audio must be drained outside the analysis gate"
     finally:
         session.close()
 
@@ -350,4 +385,5 @@ def test_the_audio_section_of_the_analysis_status_is_shaped_for_the_api():
         "events": [],
         "running": False,
     }
+
 

@@ -42,18 +42,35 @@ class AudioCapture:
         self._queue: Queue = Queue(maxsize=100)
         self._running = False
         self._failure: str | None = None
+        self._available: bool | None = None
 
     @property
     def available(self) -> bool:
-        """Whether a microphone can actually be opened on this machine."""
-        return self._pyaudio is not None or (
-            self._failure is None and self._init_pyaudio()
-        )
+        """Whether a microphone can actually be opened on this machine.
+
+        Importing PyAudio is not the same as having an input device: a server
+        with no sound card imports it fine and fails at ``open()``.  The probe
+        is cached because it costs a PortAudio round trip.
+        """
+        if self._available is None:
+            self._available = self._probe_device()
+        return self._available
+
+    def _probe_device(self) -> bool:
+        if not self._init_pyaudio():
+            return False
+        try:
+            self._pyaudio.get_default_input_device_info()
+            return True
+        except Exception as exc:  # noqa: BLE001 - no device is a normal state
+            self._failure = f"{type(exc).__name__}: {exc}"
+            log.info("no default input device: %s", self._failure)
+            return False
 
     @property
     def unavailable_reason(self) -> str | None:
-        if self._failure is None and self._pyaudio is None:
-            self._init_pyaudio()
+        if self._available is None:
+            self._available = self._probe_device()
         return self._failure
 
     @property
@@ -77,10 +94,15 @@ class AudioCapture:
             return False
 
     def start(self) -> bool:
-        """Open the device and begin capturing; returns whether it started."""
-        if self._running:
+        """Open the device and begin capturing; returns whether it is running.
+
+        The check is on the thread, not on the flag: a capture loop that died
+        (device unplugged, driver reset) leaves no live thread, and a flag-only
+        test would report "already running" and hand back a dead stream.
+        """
+        if self._running and self._capture_thread is not None and self._capture_thread.is_alive():
             return True
-        if not self._init_pyaudio():
+        if not self._probe_device():
             return False
 
         try:
@@ -107,7 +129,9 @@ class AudioCapture:
             self._failure = f"{type(exc).__name__}: {exc}"
             log.info("audio capture could not open a device: %s", self._failure)
             self._stream = None
+            self._running = False
             return False
+
 
     def stop(self) -> None:
         """Stop capturing and close the device."""
@@ -130,21 +154,29 @@ class AudioCapture:
         self._running = False
 
     def _capture_loop(self) -> None:
-        """Read chunks until asked to stop; drop rather than block when full."""
-        while not self._stop_event.is_set():
-            try:
-                if self._stream is None or not self._stream.is_active():
+        """Read chunks until asked to stop; drop rather than block when full.
+
+        ``_running`` is cleared in ``finally``: every exit path here (stop
+        requested, device died, read failed) leaves the flag truthful, so
+        ``/api/audio/events`` cannot report a stream that no longer exists.
+        """
+        try:
+            while not self._stop_event.is_set():
+                try:
+                    if self._stream is None or not self._stream.is_active():
+                        break
+                    data = self._stream.read(
+                        self.config.chunk_size, exception_on_overflow=False
+                    )
+                except Exception as exc:  # noqa: BLE001 - a dead device ends capture
+                    log.debug("audio capture loop ended: %s", exc)
                     break
-                data = self._stream.read(
-                    self.config.chunk_size, exception_on_overflow=False
-                )
-            except Exception as exc:  # noqa: BLE001 - a dead device ends capture
-                log.debug("audio capture loop ended: %s", exc)
-                break
-            try:
-                self._queue.put_nowait(np.frombuffer(data, dtype=np.int16))
-            except Full:
-                continue
+                try:
+                    self._queue.put_nowait(np.frombuffer(data, dtype=np.int16))
+                except Full:
+                    continue
+        finally:
+            self._running = False
 
     def read(self, timeout: float = 0.1) -> Optional[np.ndarray]:
         """Return the next chunk, or ``None`` when nothing arrives in time."""

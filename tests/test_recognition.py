@@ -37,7 +37,8 @@ def blendshapes(**scores):
 def test_models_directory_is_found_in_a_source_checkout(monkeypatch):
     monkeypatch.delenv("RVM_MODELS_DIR", raising=False)
     directory = models_dir()
-    assert directory is not None and directory.name == "models"
+    assert directory is not None
+    assert (directory / "face_landmarker.task").is_file()
 
 
 def test_an_explicit_models_directory_wins(tmp_path, monkeypatch):
@@ -165,14 +166,14 @@ def test_an_unrecognisable_face_is_dropped_rather_than_guessed():
 def test_recognition_on_a_blank_frame_reports_a_state():
     result = FaceRecognizer().recognize(np.zeros((120, 160, 3), dtype=np.uint8))
     assert isinstance(result, FaceRecognition)
-    assert result.recognizer_name in {"unavailable", "error", "no-faces", "no-known-faces"}
+    assert result.state in {"unavailable", "error", "no-faces", "no-known-faces"}
     assert result.count == 0
 
 
 def test_emotion_detection_on_a_blank_frame_reports_a_state():
     result = EmotionRecognizer().detect(np.zeros((120, 160, 3), dtype=np.uint8))
     assert isinstance(result, EmotionDetection)
-    assert result.detector_name in {"unavailable", "error", "no-faces"}
+    assert result.state in {"unavailable", "error", "no-faces"}
     assert result.count == 0
 
 
@@ -190,13 +191,67 @@ def test_face_snapshot_rounds_confidence_and_lists_the_box():
         "confidence": 0.812,
         "bbox": [1, 2, 3, 4],
     }
-    assert snapshot["recognizer"] == "mediapipe"
+    assert snapshot["state"] == "mediapipe"
 
 
-def test_emotion_snapshot_rounds_confidence_and_names_the_detector():
+def test_emotion_snapshot_rounds_confidence_and_names_the_state():
     detection = EmotionDetection([("happy", 0.4567, (1, 2, 3, 4))], "mediapipe")
     snapshot = detection.snapshot()
     assert snapshot["count"] == 1
     assert snapshot["emotions"][0]["emotion"] == "happy"
     assert snapshot["emotions"][0]["confidence"] == 0.457
-    assert snapshot["detector"] == "mediapipe"
+    assert snapshot["state"] == "mediapipe"
+
+
+
+# --------------------------------------------------------------------------
+# The models the analysers actually load
+# --------------------------------------------------------------------------
+
+
+def test_the_face_models_load_and_can_be_closed():
+    """A wrong keyword or a bad model path would leave this "unavailable".
+
+    Pinned on purpose: the port fixed exactly that class of bug in the gesture
+    module (a misspelt option swallowed into "unavailable"), and no other test
+    in the suite would notice a repeat.
+    """
+    pytest.importorskip("mediapipe")
+
+    for factory in (FaceRecognizer, EmotionRecognizer):
+        recognizer = factory()
+        try:
+            assert recognizer.available is True, recognizer.unavailable_reason
+        finally:
+            recognizer.close()
+        assert recognizer.available is False, "a closed recogniser must not reload itself"
+
+
+def test_a_missing_model_is_reported_rather_than_raised(tmp_path, monkeypatch):
+    monkeypatch.setenv("RVM_MODELS_DIR", str(tmp_path))
+
+    recognizer = FaceRecognizer()
+
+    assert recognizer.available is False
+    assert "face_landmarker.task" in (recognizer.unavailable_reason or "")
+
+
+def test_a_face_further_than_the_threshold_is_not_reported():
+    recognizer = FaceRecognizer(threshold=0.6)
+    recognizer.add_known_face("someone", np.zeros(4))
+
+    name, confidence = recognizer._match(np.full(4, 2.0))
+
+    assert name is None
+    assert confidence < recognizer.threshold
+
+
+def test_a_face_inside_the_threshold_is_reported_with_its_name():
+    recognizer = FaceRecognizer(threshold=0.6)
+    recognizer.add_known_face("joe", np.zeros(4))
+
+    name, confidence = recognizer._match(np.full(4, 0.2))
+
+    assert name == "joe"
+    assert confidence == pytest.approx(0.6)
+

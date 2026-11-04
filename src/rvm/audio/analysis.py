@@ -41,7 +41,6 @@ class EventType(str, Enum):
     GUNSHOT = "gunshot"
     GLASS_BREAK = "glass_break"
     ALARM = "alarm"
-    UNKNOWN = "unknown"
 
 
 @dataclass
@@ -71,6 +70,13 @@ class AudioAnalyzer:
 
     #: Loud chunks need this much recent history before "alarm" is believable.
     ALARM_HISTORY = 5
+    #: A chunk in the speech band only counts as speech after this many in a
+    #: row.  A microphone's own noise floor sits in that band: on the demo
+    #: laptop a quiet room produced a speech-shaped chunk every other frame,
+    #: which is a stream of events describing nothing.  Two extra chunks
+    #: (~130 ms) is long enough to separate "someone spoke" from "the room
+    #: hums", and short enough not to miss a short word.
+    SPEECH_CHUNKS = 3
 
     def __init__(
         self,
@@ -84,11 +90,13 @@ class AudioAnalyzer:
         self._frame_count = 0
         self._history: List[float] = []
         self._max_history = 50
+        self._speech_streak = 0
 
     def reset(self) -> None:
         """Forget the running history."""
         self._frame_count = 0
         self._history.clear()
+        self._speech_streak = 0
 
     def analyze(self, audio_chunk: np.ndarray) -> List[AudioEvent]:
         """Return the events present in one chunk (usually none)."""
@@ -109,6 +117,7 @@ class AudioAnalyzer:
         self._frame_count += 1
 
         if rms > self.energy_threshold:
+            self._speech_streak = 0
             return [
                 AudioEvent(
                     event_type=self._classify_loud(rms, zcr, centroid),
@@ -121,6 +130,7 @@ class AudioAnalyzer:
             ]
 
         if rms < self.silence_threshold:
+            self._speech_streak = 0
             # Silence only means something after activity: a room that was
             # never loud produces a silent chunk every frame, and reporting
             # each one is noise rather than monitoring.
@@ -138,17 +148,21 @@ class AudioAnalyzer:
             return []
 
         if zcr > 0.05:
-            return [
-                AudioEvent(
-                    event_type=EventType.SPEECH,
-                    confidence=0.7,
-                    timestamp=timestamp,
-                    duration=duration,
-                    energy=rms,
-                    metadata={"zcr": round(zcr, 4)},
-                )
-            ]
+            self._speech_streak += 1
+            if self._speech_streak >= self.SPEECH_CHUNKS:
+                return [
+                    AudioEvent(
+                        event_type=EventType.SPEECH,
+                        confidence=0.7,
+                        timestamp=timestamp,
+                        duration=duration,
+                        energy=rms,
+                        metadata={"zcr": round(zcr, 4)},
+                    )
+                ]
+            return []
 
+        self._speech_streak = 0
         return []
 
     @staticmethod
@@ -162,8 +176,11 @@ class AudioAnalyzer:
 
     def _classify_loud(self, energy: float, zcr: float, centroid: float) -> EventType:
         """Name a loud chunk from its brightness, crossing rate and history."""
-        # A gunshot is a very short, very bright transient far above the floor.
-        if energy > self.energy_threshold * 3 and centroid > 2000:
+        # A gunshot is a very short, very bright, noisy transient far above the
+        # floor.  The crossing-rate floor is what separates an impulse from a
+        # sustained bright sound, which this 64 ms window cannot tell apart by
+        # duration alone.
+        if energy > self.energy_threshold * 3 and centroid > 2000 and zcr > 0.25:
             return EventType.GUNSHOT
 
         # Glass breaks are bright and noisy: high centroid and high zcr.
