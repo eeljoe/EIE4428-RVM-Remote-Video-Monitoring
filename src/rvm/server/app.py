@@ -55,6 +55,8 @@ def create_app(
     prefer_camera: bool = True,
     record_dir: str | Path = "recordings",
     session: StreamSession | None = None,
+    analysis: bool = False,
+    analysis_interval: float = 0.5,
 ) -> web.Application:
     """Build the application and its single shared :class:`StreamSession`."""
     if session is None:
@@ -71,6 +73,8 @@ def create_app(
                 fps=fps,
             ),
             record_dir=record_dir,
+            analysis=analysis,
+            analysis_interval=analysis_interval,
         )
 
     app = web.Application()
@@ -87,6 +91,13 @@ def create_app(
     app.router.add_post("/api/config", handle_config)
     app.router.add_post("/api/motion", handle_motion)
     app.router.add_post("/api/record", handle_record)
+    app.router.add_get("/api/features", handle_features)
+    app.router.add_get("/api/tracks", handle_tracks)
+    app.router.add_get("/api/faces/identities", handle_face_identities)
+    app.router.add_get("/api/emotions", handle_emotions)
+    app.router.add_get("/api/gestures", handle_gestures)
+    app.router.add_get("/api/audio/events", handle_audio_events)
+    app.router.add_post("/api/audio/control", handle_audio_control)
     app.router.add_get("/ws", handle_websocket)
 
     app.on_startup.append(_startup)
@@ -303,6 +314,70 @@ async def handle_record(request: web.Request) -> web.Response:
 
 
 # --------------------------------------------------------------------------
+# Optional analysis
+# --------------------------------------------------------------------------
+
+
+async def handle_features(request: web.Request) -> web.Response:
+    """Which optional analysers this machine can run."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.features())
+
+
+async def handle_tracks(request: web.Request) -> web.Response:
+    """Tracked objects with their persistent IDs."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.analysis_status()["tracks"])
+
+
+async def handle_face_identities(request: web.Request) -> web.Response:
+    """Faces recognised against the (possibly empty) known-face database."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.analysis_status()["face_identities"])
+
+
+async def handle_emotions(request: web.Request) -> web.Response:
+    """Classified facial expressions."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.analysis_status()["emotions"])
+
+
+async def handle_gestures(request: web.Request) -> web.Response:
+    """Classified hand gestures."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.analysis_status()["gestures"])
+
+
+async def handle_audio_events(request: web.Request) -> web.Response:
+    """Recent acoustic events, newest last."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response(session.analysis_status()["audio"])
+
+
+async def handle_audio_control(request: web.Request) -> web.Response:
+    """Start or stop microphone monitoring."""
+    session: StreamSession = request.app[SESSION]
+    try:
+        body = await request.json()
+    except (ValueError, TypeError):
+        raise web.HTTPBadRequest(text="expected a JSON body")
+    if not isinstance(body, dict) or "enabled" not in body:
+        raise web.HTTPBadRequest(text='expected {"enabled": true|false}')
+
+    requested = bool(body["enabled"])
+    running = session.set_audio_enabled(requested)
+    capture = session.audio_capture
+    return web.json_response(
+        {
+            "requested": requested,
+            "running": running,
+            "available": bool(capture and capture.available),
+            "reason": None if capture is None else capture.unavailable_reason,
+        }
+    )
+
+
+# --------------------------------------------------------------------------
 # WebSocket
 # --------------------------------------------------------------------------
 
@@ -395,6 +470,11 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
         help="use the generated scene instead of a webcam",
     )
     parser.add_argument("--recordings", default="recordings")
+    parser.add_argument(
+        "--no-analysis",
+        action="store_true",
+        help="skip the optional face / gesture / audio analysers",
+    )
     args = parser.parse_args(argv)
 
     # The runner is driven explicitly rather than through web.run_app, which
@@ -410,6 +490,7 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
             camera_index=args.camera,
             prefer_camera=not args.no_camera,
             record_dir=args.recordings,
+            analysis=not args.no_analysis,
         )
 
         runner = web.AppRunner(app)

@@ -239,3 +239,60 @@ async def test_websocket_delivers_coded_packets(client):
         assert status["packets_sent"] > 0
     finally:
         await socket.close()
+
+# --------------------------------------------------------------------------
+# Optional analysis
+# --------------------------------------------------------------------------
+
+
+async def test_analysis_endpoints_report_an_empty_state(client):
+    for path, field in (
+        ("/api/tracks", "tracks"),
+        ("/api/faces/identities", "identities"),
+        ("/api/emotions", "emotions"),
+        ("/api/gestures", "gestures"),
+    ):
+        response = await client.get(path)
+        assert response.status == 200, path
+        body = await response.json()
+        assert body["count"] == 0, path
+        assert body[field] == [], path
+
+
+async def test_audio_events_endpoint_reports_the_capture_state(client):
+    body = await (await client.get("/api/audio/events")).json()
+
+    assert body == {"count": 0, "events": [], "running": False}
+
+
+async def test_features_endpoint_lists_every_optional_analyser(client):
+    body = await (await client.get("/api/features")).json()
+
+    assert body == {
+        "enabled": False,
+        "ready": False,
+        "face_recognition": False,
+        "emotion_recognition": False,
+        "gesture_recognition": False,
+        "audio_monitoring": False,
+    }
+
+
+async def test_audio_control_needs_a_json_body(client):
+    response = await client.post("/api/audio/control", data="not json")
+
+    assert response.status == 400
+
+
+async def test_audio_control_needs_the_enabled_key(client):
+    response = await client.post("/api/audio/control", json={"on": True})
+
+    assert response.status == 400
+
+
+async def test_audio_control_reports_what_it_did(client):
+    body = await (await client.post("/api/audio/control", json={"enabled": False})).json()
+
+    assert body["requested"] is False
+    assert body["running"] is False
+    assert isinstance(body["available"], bool)

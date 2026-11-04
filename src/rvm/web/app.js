@@ -24,6 +24,23 @@ function fmtBitrate(bps) {
   return bps + " bps";
 }
 
+/* An analyser that is switched off must not look like one that is broken, and
+ * one that is working on an empty scene must not look like either. The state
+ * the server reports is what separates those three cases. */
+function analysisText(result, field, emptyLabel, limit = 3) {
+  if (!result) return "—";
+  const state = result.detector || result.recognizer;
+  if (state === "disabled") return "off";
+  if (state === "unavailable") return "unavailable";
+  if (state === "error") return "error";
+  if (state === "no-known-faces") return "none registered";
+  if (!result.count) return emptyLabel;
+  return result[field]
+    .slice(0, limit)
+    .map((item) => item.gesture || item.emotion || item.name || "?")
+    .join(", ");
+}
+
 function render(s) {
   lastStatus = s;
   setText("m-res", s.width + "×" + s.height);
@@ -38,6 +55,14 @@ function render(s) {
   setText("m-clients", s.clients ?? 0);
   setText("m-motion", ((s.motion_ratio ?? 0) * 100).toFixed(2) + " %");
   setText("m-faces", s.faces ?? 0);
+  setText(
+    "m-tracks",
+    (s.tracks || []).length ? (s.tracks || []).map((t) => "T" + t.id).join(", ") : "none"
+  );
+  setText("m-gestures", analysisText(s.gestures, "gestures", "no hand"));
+  setText("m-emotions", analysisText(s.emotions, "emotions", "no face"));
+  setText("m-identities", analysisText(s.face_identities, "identities", "no face"));
+  setText("m-audio", s.audio_last || (s.audio_events ? s.audio_events + " events" : "none"));
   setText("m-rec", s.recording ? "recording" : "off");
   setText("src-label", "source: " + (s.source || "—"));
 

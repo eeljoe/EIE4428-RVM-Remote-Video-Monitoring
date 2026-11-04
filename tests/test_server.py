@@ -262,3 +262,92 @@ def test_session_rejects_a_configuration_it_cannot_deliver():
 
     with pytest.raises(ValueError, match="bitrate"):
         session.update_config(bitrate=-1)
+
+# --------------------------------------------------------------------------
+# Optional analysis wiring
+# --------------------------------------------------------------------------
+
+
+def test_analysis_is_off_unless_it_is_asked_for():
+    """The analysers cost tens of ms per picture, so they are opt-in."""
+    session = make_session()
+
+    features = session.features()
+
+    assert features["enabled"] is False
+    assert features["face_recognition"] is False
+    assert features["emotion_recognition"] is False
+    assert features["gesture_recognition"] is False
+    assert session.status()["analysis"]["ready"] is False
+
+
+def test_status_carries_the_analysis_sections_even_when_idle():
+    session = make_session()
+    asyncio.run(session.run_once())
+
+    status = session.status()
+
+    for key, field in (
+        ("face_identities", "identities"),
+        ("emotions", "emotions"),
+        ("gestures", "gestures"),
+    ):
+        assert status[key]["count"] == 0
+        assert status[key][field] == []
+    assert status["audio_events"] == 0
+    assert status["audio_last"] is None
+
+
+def test_analysis_stays_idle_until_the_models_are_loaded():
+    """Enabling analysis must not block the encode thread on a model load."""
+    session = make_session()
+    session.analysis_enabled = True  # warm-up deliberately not started
+
+    asyncio.run(session.run_once())
+
+    assert session.status()["gestures"]["count"] == 0
+    assert session.status()["emotions"]["count"] == 0
+    assert session.features()["ready"] is False
+
+
+def test_analysis_status_matches_the_telemetry_shape():
+    session = make_session()
+    asyncio.run(session.run_once())
+
+    analysis = session.analysis_status()
+    status = session.status()
+
+    assert analysis["tracks"] == {"count": len(status["tracks"]), "tracks": status["tracks"]}
+    assert analysis["gestures"] == status["gestures"]
+    assert set(analysis) == {
+        "tracks",
+        "face_identities",
+        "emotions",
+        "gestures",
+        "audio",
+        "features",
+    }
+
+
+def test_audio_control_reports_whether_the_microphone_is_running():
+    session = make_session()
+    try:
+        running = session.set_audio_enabled(True)
+        assert isinstance(running, bool)
+        assert running == session.audio_enabled
+
+        session.set_audio_enabled(False)
+        assert session.audio_enabled is False
+    finally:
+        session.close()
+
+
+def test_the_audio_section_of_the_analysis_status_is_shaped_for_the_api():
+    session = make_session()
+
+    assert session.analysis_status()["audio"] == {
+        "count": 0,
+        "events": [],
+        "running": False,
+    }
+

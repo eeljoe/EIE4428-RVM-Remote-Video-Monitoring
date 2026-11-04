@@ -23,6 +23,7 @@ viewer from adding latency for everyone else.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -30,8 +31,16 @@ from pathlib import Path
 import numpy as np
 
 from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
+from ..analysis.gesture import GestureDetection, GestureRecognizer
+from ..analysis.recognition import (
+    EmotionDetection,
+    EmotionRecognizer,
+    FaceRecognition,
+    FaceRecognizer,
+)
 from ..analysis.track import CentroidTracker, regions_from_mask
 from ..analysis.quality import psnr
+from ..audio import AudioAnalyzer, AudioCapture, AudioEvent
 from ..codec.video import VideoEncoder
 from ..core.colorspace import rgb_to_ycbcr, to_planes
 from ..network.packet import Packet, frame_timestamp, packetize
@@ -40,6 +49,11 @@ from .recorder import FrameRecorder
 from .source import CaptureSource, SyntheticSource
 
 __all__ = ["ClientSession", "StreamSession"]
+
+#: How many audio events stay on record; the dashboard shows the newest few.
+AUDIO_EVENT_LIMIT = 50
+#: Audio chunks consumed per analysis tick, so a burst cannot stall a picture.
+AUDIO_CHUNKS_PER_TICK = 8
 
 
 class ClientSession:
@@ -95,6 +109,8 @@ class StreamSession:
         source: CaptureSource | None = None,
         motion_threshold: float = 0.01,
         record_dir: str | Path | None = None,
+        analysis: bool = False,
+        analysis_interval: float = 0.5,
     ) -> None:
         self.width = width
         self.height = height
@@ -115,6 +131,24 @@ class StreamSession:
         self.face_detector = FaceDetector()
         self.tracker = CentroidTracker()
 
+        # Optional analysis.  It is off unless asked for, because it is the one
+        # part of the pipeline that costs tens of milliseconds per picture and
+        # would otherwise make every test and every headless run pay for models
+        # it never uses.
+        self.analysis_enabled = analysis
+        self.analysis_interval = analysis_interval
+        self.face_recognizer = FaceRecognizer()
+        self.emotion_recognizer = EmotionRecognizer()
+        self.gesture_recognizer = GestureRecognizer()
+        self.audio_analyzer = AudioAnalyzer()
+        self.audio_capture: AudioCapture | None = None
+        self._face_identities = FaceRecognition()
+        self._emotions = EmotionDetection()
+        self._gestures = GestureDetection()
+        self._audio_events: list[AudioEvent] = []
+        self._models_ready = threading.Event()
+        self._analysis_due = 0.0
+
         self.stats = StreamStats(window_seconds=4.0)
         self.recorder: FrameRecorder | None = None
 
@@ -130,6 +164,9 @@ class StreamSession:
         self._psnr: float | None = None
         self._injected: np.ndarray | None = None
         self._lock = asyncio.Lock()
+
+        if analysis:
+            self._start_model_warmup()
 
     # -- client management ---------------------------------------------------
 
@@ -248,6 +285,8 @@ class StreamSession:
         self._faces = self.face_detector.detect(luma)
         self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
 
+        self._analyse(frame)
+
         encoded = self.encoder.encode(frame)
 
         # Quality is measured against the encoder's own reconstruction,
@@ -303,6 +342,118 @@ class StreamSession:
             return buffer.tobytes() if ok else None
         except Exception:  # noqa: BLE001
             return None
+
+    # -- optional analysis ---------------------------------------------------
+
+    def _start_model_warmup(self) -> None:
+        """Load the MediaPipe bundles off the encode thread.
+
+        Creating a landmarker reads a multi-megabyte model; doing that inside
+        :meth:`_encode_once` would hold the first picture of the stream for
+        seconds.  The encode thread waits on :attr:`_models_ready` instead, so
+        the stream starts immediately and the analyzers join once they can.
+        """
+
+        def warm_up() -> None:
+            for recognizer in (
+                self.face_recognizer,
+                self.emotion_recognizer,
+                self.gesture_recognizer,
+            ):
+                try:
+                    recognizer.available  # noqa: B018 - forces the load
+                except Exception:  # noqa: BLE001 - a missing model is not fatal
+                    pass
+            self._models_ready.set()
+
+        threading.Thread(target=warm_up, name="rvm-model-warmup", daemon=True).start()
+
+    def _analyse(self, frame: np.ndarray) -> None:
+        """Run the optional analysers on a cadence rather than per picture.
+
+        Recognition is not what the pipeline is graded on, and it is an order
+        of magnitude more expensive than encoding a 320x240 picture.  Running
+        it every ``analysis_interval`` seconds keeps the stream at its frame
+        rate while still refreshing the dashboard twice a second.
+        """
+        if not self.analysis_enabled or not self._models_ready.is_set():
+            return
+
+        now = time.monotonic()
+        if now < self._analysis_due:
+            return
+        self._analysis_due = now + self.analysis_interval
+
+        self._face_identities = self.face_recognizer.recognize(frame)
+        self._emotions = self.emotion_recognizer.detect(frame)
+        self._gestures = self.gesture_recognizer.detect(frame)
+        self._drain_audio()
+
+    def _drain_audio(self) -> None:
+        """Move captured audio into events, a bounded number of chunks at a time."""
+        capture = self.audio_capture
+        if capture is None or not capture.running:
+            return
+
+        for _ in range(AUDIO_CHUNKS_PER_TICK):
+            chunk = capture.read(timeout=0.0)
+            if chunk is None:
+                break
+            self._audio_events.extend(self.audio_analyzer.analyze(chunk))
+
+        if len(self._audio_events) > AUDIO_EVENT_LIMIT:
+            del self._audio_events[:-AUDIO_EVENT_LIMIT]
+
+    @property
+    def audio_enabled(self) -> bool:
+        """Whether the microphone is actually capturing right now."""
+        return self.audio_capture is not None and self.audio_capture.running
+
+    def set_audio_enabled(self, enabled: bool) -> bool:
+        """Start or stop audio monitoring; returns whether it is running."""
+        if enabled:
+            if self.audio_capture is None:
+                self.audio_capture = AudioCapture()
+            self.audio_capture.start()
+        elif self.audio_capture is not None:
+            self.audio_capture.stop()
+        return self.audio_enabled
+
+    def features(self) -> dict:
+        """Which optional analysers this machine can actually run.
+
+        Availability is reported from the warm-up result rather than by
+        probing: probing would block an HTTP request for the seconds a model
+        takes to load.
+        """
+        ready = self.analysis_enabled and self._models_ready.is_set()
+        return {
+            "enabled": self.analysis_enabled,
+            "ready": self._models_ready.is_set(),
+            "face_recognition": ready and self.face_recognizer.available,
+            "emotion_recognition": ready and self.emotion_recognizer.available,
+            "gesture_recognition": ready and self.gesture_recognizer.available,
+            "audio_monitoring": self.audio_capture is not None
+            and self.audio_capture.available,
+        }
+
+    def analysis_status(self) -> dict:
+        """The analysis half of the API, in one shape for every caller."""
+        return {
+            "tracks": {
+                "count": len(self._tracks),
+                "tracks": [track.snapshot() for track in self._tracks],
+            },
+            "face_identities": self._face_identities.snapshot(),
+            "emotions": self._emotions.snapshot(),
+            "gestures": self._gestures.snapshot(),
+            "audio": {
+                "count": len(self._audio_events),
+                "events": [event.snapshot() for event in self._audio_events[-20:]],
+                "running": self.audio_enabled,
+            },
+            "features": self.features(),
+        }
 
     # -- outputs -------------------------------------------------------------
 
@@ -367,6 +518,17 @@ class StreamSession:
                 "motion_sensitivity": self.motion_sensitivity,
                 "motion": motion,
                 "tracks": [track.snapshot() for track in self._tracks],
+                # The analysis results ride along with the telemetry the
+                # WebSocket already pushes, so the dashboard needs no second
+                # polling loop to show them.
+                "face_identities": self._face_identities.snapshot(),
+                "emotions": self._emotions.snapshot(),
+                "gestures": self._gestures.snapshot(),
+                "audio_events": len(self._audio_events),
+                "audio_last": (
+                    self._audio_events[-1].event_type.value if self._audio_events else None
+                ),
+                "analysis": self.features(),
             }
         )
         return snapshot
@@ -393,4 +555,7 @@ class StreamSession:
         if self.recorder is not None:
             self.recorder.stop()
             self.recorder = None
+        if self.audio_capture is not None:
+            self.audio_capture.close()
+            self.audio_capture = None
         self.source.close()
