@@ -304,4 +304,3 @@ class GestureRecognizer:
                 hands.close()
             except Exception:  # noqa: BLE001 - closing is best effort
                 pass
-

@@ -649,4 +649,3 @@ class StreamSession:
             recognizer.close()
 
         self.source.close()
-

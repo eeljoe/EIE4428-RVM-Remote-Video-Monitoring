@@ -54,4 +54,3 @@ asyncio_default_fixture_loop_scope = "function"
 markers = [
     "slow: marks tests that take more than a couple of seconds",
 ]
-

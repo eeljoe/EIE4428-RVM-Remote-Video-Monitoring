@@ -165,4 +165,3 @@ behaviour is auditable and their cost is bounded.
 - **The first ~2 s of a session report `pending`.** That is the model load, and
   it is deliberately visible instead of being disguised as "off" or "no
   hands".
-

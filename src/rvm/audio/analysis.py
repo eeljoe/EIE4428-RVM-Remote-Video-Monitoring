@@ -254,4 +254,3 @@ class AudioAnalyzer:
             "frames_analyzed": self._frame_count,
             "history_length": len(self._history),
         }
-

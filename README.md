@@ -314,4 +314,3 @@ Five to seven minutes, in the order that shows the most with the least clicking.
 - [ ] Second PC connects over the LAN address, not `localhost`, and the firewall rule is in place.
 - [ ] `mini-project/EIE4428-RVM.zip` rebuilt with `tools/make_zip.py`, which unpacks its own output and runs the test suite there.
 - [ ] Test recordings containing private material deleted before zipping.
-

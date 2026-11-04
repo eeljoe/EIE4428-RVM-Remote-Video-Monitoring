@@ -22,4 +22,3 @@
 opencv-contrib-python>=4.8,<5
 mediapipe>=0.10,<2
 pyaudio>=0.2.14
-
