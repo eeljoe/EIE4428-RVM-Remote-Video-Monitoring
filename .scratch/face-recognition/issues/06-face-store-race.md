@@ -1,6 +1,6 @@
 # 06 — 名单删除与注册的互斥
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 02
 真机自检：不需要
 
@@ -89,3 +89,5 @@
 - **决定：`FaceStore.add`/`replace` 不加锁，判为无同类漏洞** / 理由：它们的生产写点只有 `_publish_faces`（锁内）与 `__init__` 的 `load()`（线程启动前），`FaceStore.add/remove` 只被测试直接调用 / 影响面：若以后有人在 session 之外直接调 `FaceStore.add`，丢更新会以新路径回归，测试不覆盖。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED 2af49cd — 干净副本亲手复现：`remove_face` 读—改—写全程持同一把 `_faces_lock`；全还原与「仅复制行出锁」两个变异各产出确定性红（sha1 与 worker 自证逐字节一致），还原后 16 绿；20 连跑零抖动；全套 552 绿。｜报告：.scratch/face-recognition/reports/06-r1-verifier.md｜模型路线：未标注（派发未带 --model）

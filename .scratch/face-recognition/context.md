@@ -59,3 +59,12 @@ r2:
 - **`_faces_lock` 用 `RLock` 而不是普通 `Lock`** / 理由：`register_face` 需要「复检 + 发布」原子，而 `_publish_faces` 自己也要保护删除路径，嵌套取锁是最短写法 / 影响面：锁的持有者可重入，没有额外语义。
 - **`register_face` 保留顶部那次重名检查** / 理由：让重复名字在推理前就被 409，不必等三次 landmarker 调用 / 影响面：同名并发时两次请求都跑完采样，浪费约 3 次推理，但结果仍是一个 201。
 - **r2 真机自检换端口与临时名单路径，新开 `-r2` 文件** / 理由：8099 被 03 号票的服务器占用（本机实测），且 r1 的读数不能当 r2 证据（产品代码已变）/ 影响面：`data/known_faces.json` 未在仓库内产生，r1 证据文件保持原样。
+
+### 票 6
+
+- **决定：改 `src/rvm/server/session.py`，越出票面写域一行** / 理由：缺陷（`remove_face` 的锁外复制）与 `_faces_lock` 都只在该文件；票面锚点 `grep -n "def remove_face" src/rvm/analysis/face_store.py` 无命中（`face_store.py` 只有 store 层 `remove`），照写域做无法修 / 影响面：改动仅 `remove_face` 一个方法体 + `_faces_lock` 的注释，未碰 `src/rvm/web/*`、`tests/test_app.py` 等其它文件；门若判越界请以此处置。
+- **决定：并发测试放 `tests/test_face_store.py`（而不是 `tests/test_face_api.py`）** / 理由：票面写域与定向命令只指该文件 / 影响面：该文件新增 `from rvm.server.session import StreamSession`（连带 cv2），定向跑从 0.4s 量级变为约 1.6s。
+- **决定：用 `ObservedLock` 替换 `_faces_lock` 作确定性接缝** / 理由：旧实现的坏交错唯一可观测点就是「锁入口之前已完成复制」，sleep 只能猜 / 影响面：测试依赖「`_faces_lock` 是实例属性且以 `with` 使用」；换成模块级锁或非上下文管理器时测试需同步改。
+- **决定：测试直接填 `_recent_frames`，不跑 `run_once`** / 理由：这三帧就是注册要平均的内容，跑 `run_once` 只为生成同样三帧，却引入 Haar 与 OpenCL 退出问题 / 影响面：本票证据不含分析 tick 路径（已由 02 票测试覆盖）。
+- **决定：多写一条 remove-vs-remove 测试** / 理由：门首攻靶点名「删除与注册交错是否还有第二条路径」，同类缺陷在两条删除之间同样成立 / 影响面：多一条测试，产品代码不变。
+- **决定：`FaceStore.add`/`replace` 不加锁，判为无同类漏洞** / 理由：它们的生产写点只有 `_publish_faces`（锁内）与 `__init__` 的 `load()`（线程启动前），`FaceStore.add/remove` 只被测试直接调用 / 影响面：若以后有人在 session 之外直接调 `FaceStore.add`，丢更新会以新路径回归，测试不覆盖。
