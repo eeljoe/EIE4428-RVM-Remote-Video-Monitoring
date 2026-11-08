@@ -10,7 +10,7 @@
 
 ## Acceptance criteria
 
-- [ ] [AS-3, AS-4] `remove_face` 的读—改—写全程持 `_faces_lock`，与 `register_face` 并发时不丢更新 [AS-3, AS-4]
+- [ ] [AS-3, AS-4] `remove_face` 的读—改—写全程持 `_faces_lock`，与 `register_face` 并发时不丢更新
 - [ ] 新增并发测试能稳定复现旧实现的丢失（旧代码红、新代码绿），不是概率性 sleep [AS-3, AS-4]
 - [ ] 定向与全套测试通过，其它行为不变 [AS-5]
 
