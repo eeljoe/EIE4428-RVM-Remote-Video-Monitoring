@@ -199,7 +199,10 @@ class StreamSession:
         # One lock for changes to the registry.  Registering checks the name,
         # spends three inferences taking samples, then publishes; without a
         # lock two requests for the same name both pass the check and both
-        # answer 201.  Re-entrant because ``register_face`` holds it while
+        # answer 201.  Deleting copies the list, removes a name and writes it
+        # back, so it holds this lock across all three steps too: a copy taken
+        # outside it and written back later silently drops any change that
+        # landed in between.  Re-entrant because both callers hold it while
         # ``_publish_faces`` takes it again for the change itself.
         self._faces_lock = threading.RLock()
         # The last few frames that were actually analysed, newest last.
@@ -682,15 +685,22 @@ class StreamSession:
 
         Also blocking (it rewrites the file), and also called from a worker
         thread, so a slow disk cannot stall the stream or the telemetry push.
+
+        The copy, the existence check and the write-back are one critical
+        section.  Copying outside it and writing the copy back later is a lost
+        update: a registration that publishes in between is answered 201 and
+        then erased from the store, the file and the recogniser mirror by a
+        list that never heard of it, and nothing afterwards reports the loss.
         """
         cleaned = str(name).strip()
-        faces = dict(self.face_store.faces)
-        if cleaned not in faces:
-            raise FaceRequestError(
-                404, "bad-name", f"{cleaned!r} is not registered"
-            )
-        del faces[cleaned]
-        self._publish_faces(faces)
+        with self._faces_lock:
+            faces = dict(self.face_store.faces)
+            if cleaned not in faces:
+                raise FaceRequestError(
+                    404, "bad-name", f"{cleaned!r} is not registered"
+                )
+            del faces[cleaned]
+            self._publish_faces(faces)
         return {"removed": True, "known": self.known_face_names()}
 
     def _sample_faces(self, frame: np.ndarray) -> list[np.ndarray]:
