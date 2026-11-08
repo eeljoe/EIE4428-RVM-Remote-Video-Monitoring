@@ -1,6 +1,6 @@
 # 06 — 名单删除与注册的互斥
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 02
 真机自检：不需要
 
