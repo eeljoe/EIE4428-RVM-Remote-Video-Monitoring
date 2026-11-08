@@ -1,0 +1,69 @@
+<!doctype html>
+<meta charset="utf-8">
+<!-- 08 r1 verifier viewport probe (written by the verifier, not the worker).
+     Pins the real page in a same-origin iframe of exactly ?w x ?h CSS px,
+     measures the FACE REGISTRY -> STREAM seam with getBoundingClientRect and
+     every neighbouring .section pair, prints readings into #bar for dump-dom
+     and paints them into the screenshot. -->
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #f { border: 0; display: block; position: absolute; left: 0; top: 0; }
+  #bar { position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+         background: #7df9ff; color: #000; font: 11px/1.35 monospace;
+         padding: 3px 5px; white-space: pre-wrap; }
+</style>
+<iframe id="f" src="/"></iframe>
+<div id="bar">VP boot</div>
+<script>
+const q = new URLSearchParams(location.search);
+const W = parseInt(q.get("w") || "390", 10);
+const H = parseInt(q.get("h") || "844", 10);
+const f = document.getElementById("f");
+f.style.width = W + "px"; f.style.height = H + "px";
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const r2 = (v) => Math.round(v * 100) / 100;
+
+f.addEventListener("load", async () => {
+  const w = f.contentWindow, d = w.document;
+  const until = async (cond, tries) => {
+    for (let i = 0; i < tries; i++) { const v = cond(); if (v) return v;
+      await new Promise((r) => setTimeout(r, 20)); }
+    return null;
+  };
+  try {
+    await until(() => d.querySelectorAll("dd:not(.pending)").length > 3, 900);
+    const sections = Array.from(d.querySelectorAll("main .section"));
+    const info = sections.map((s) => {
+      const h2 = s.querySelector("h2");
+      const cs = w.getComputedStyle(s);
+      return { el: s, name: h2 ? h2.textContent.trim().split("\n")[0].trim() : "?",
+               rect: s.getBoundingClientRect(), cs };
+    });
+    const byTop = info.slice().sort((a, b) => a.rect.top - b.rect.top);
+    const reg = info.find((s) => s.el.id === "face-registry");
+    const stream = byTop.find((s) => /^stream/i.test(s.name));
+    const boxGap = r2(stream.rect.top - reg.rect.bottom);
+    const visGap = r2(parseFloat(stream.cs.marginTop) +
+                      parseFloat(stream.cs.paddingTop));
+    const line = stream.cs.borderTopWidth + " " + stream.cs.borderTopStyle +
+                 " " + stream.cs.borderTopColor;
+    const gaps = [];
+    for (let i = 1; i < byTop.length; i++) {
+      const a = byTop[i - 1], b = byTop[i];
+      gaps.push(b.name + ": box=" + Math.round(b.rect.top - a.rect.bottom) +
+        " line=" + b.cs.borderTopWidth);
+    }
+    bar([
+      "VP " + W + "x" + H + " docW=" + d.documentElement.scrollWidth + "/" +
+        d.documentElement.clientWidth + " winInner=" + w.innerWidth,
+      "SEAM reg.bottom=" + r2(reg.rect.bottom) + " stream.top=" + r2(stream.rect.top),
+      "SEAM box=" + boxGap + " visual(m+p)=" + visGap + " line=" + line,
+      "ORDER " + byTop.map((s) => s.name.split(" ")[0]).join(" > "),
+      "GAPS " + gaps.join(" | "),
+    ].join("\n"));
+    if (q.get("scroll") === "seam") {
+      w.scrollTo(0, Math.max(0, Math.round(stream.rect.top) - 300));
+    }
+  } catch (e) { bar("VP ERROR " + e.message); }
+});
+</script>

@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin:0; background:#000; }
+  #bar { min-height:20px; background:#ffee58; color:#000; font:12px/1.5 monospace;
+         padding:4px 8px; white-space:pre-wrap; word-break:break-all; }
+  #detail { background:#111; color:#9aa5aa; font:11px/1.4 monospace;
+         padding:4px 8px; white-space:pre-wrap; word-break:break-all; }
+  #f { width:100%; height:calc(100vh - 60px); border:0; display:block; }
+</style>
+</head><body><div id="bar">PROBE click :: status="Gate Person is already saved" class="status warn" list="&lt;img src=x onerror=window.__pwned=1&gt; | Alice Ng | Curl Probe | Gate Person" ids="no face"</div>
+<div id="detail"></div>
+<iframe id="f" src="/"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const caz = q.get("case") || "state";
+const f = document.getElementById("f");
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const detail = (m) => { document.getElementById("detail").textContent = m; };
+const el = (w, id) => w.document.getElementById(id);
+const txt = (w, id) => { const n = el(w, id); return n ? n.textContent : "<missing:" + id + ">"; };
+const cls = (w, id) => { const n = el(w, id); return n ? n.className : "<missing:" + id + ">"; };
+const listText = (w) => {
+  const ul = el(w, "face-list");
+  if (!ul) return "<missing:face-list>";
+  return Array.from(ul.querySelectorAll("li .who, li.empty")).map((n) => n.textContent).join(" | ");
+};
+
+/* Contrast per WCAG 2.1 relative luminance on the effective background. */
+function lum(rgb) {
+  const m = rgb.match(/[\d.]+/g).map(Number);
+  const c = m.slice(0, 3).map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function bgOf(w, n) {
+  while (n) {
+    const bg = w.getComputedStyle(n).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+    n = n.parentElement;
+  }
+  return w.getComputedStyle(w.document.body).backgroundColor;
+}
+function contrast(w, n) {
+  const fg = lum(w.getComputedStyle(n).color);
+  const bg = lum(bgOf(w, n));
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+async function runCase() {
+  const w = f.contentWindow;
+  const realFetch = w.fetch.bind(w);
+  const tick = () => realFetch("/api/faces/known").catch(() => null);
+  const until = async (cond, tries = 600) => {
+    for (let i = 0; i < tries; i++) {
+      const v = await cond();
+      if (v) return v;
+      await tick();
+    }
+    return null;
+  };
+  /* Pace ~ms per real round trip. */
+  const pace = async (n) => { for (let i = 0; i < n; i++) await tick(); };
+  const status = async () => (await (await realFetch("/api/status")).json());
+  const clickRemember = async (name) => {
+    el(w, "face-name").value = name;
+    el(w, "face-remember").click();
+    await until(() => (txt(w, "face-status") ? true : null));
+  };
+  /* Wait until analysis is ready AND at least three frames were sampled:
+   * ready flips at end of warmup; each analysis tick is 0.5 s on the stock
+   * server, so wait until ~40 more encoded frames pass after the first
+   * non-pending identity state. */
+  const waitSamples = async () => {
+    const ready = await until(async () => {
+      const s = await status();
+      return s.analysis && s.analysis.ready && s.face_identities.state !== "pending" ? s : null;
+    }, 1200);
+    if (!ready) return null;
+    const f0 = ready.frames;
+    return await until(async () => {
+      const s = await status();
+      return s.frames >= f0 + 24 ? s : null;
+    }, 1200);
+  };
+  try {
+    if (caz === "state") {
+      await until(() => el(w, "face-list").children.length > 0);
+      await w.refreshIdentities();
+      await until(() => txt(w, "m-identities") !== "-");
+      bar("PROBE state :: input=" + !!el(w, "face-name") +
+          " btn=" + !!el(w, "face-remember") + " btnText=" + JSON.stringify(el(w, "face-remember").textContent.trim()) +
+          " status=" + JSON.stringify(txt(w, "face-status")) +
+          " list=" + JSON.stringify(listText(w)) +
+          " xButtons=" + el(w, "face-list").querySelectorAll("button.x").length +
+          " ids=" + JSON.stringify(txt(w, "m-identities")) +
+          " conn=" + JSON.stringify(txt(w, "conn-text")));
+    } else if (caz === "click") {
+      /* Real POST through the real button; used for no-face / dup / multi /
+         off / loading / unavailable depending on which server hosts it.
+         ?wait=1 first waits for analysis-ready + three sampled frames. */
+      const name = q.get("name") || "Verifier Ng";
+      if (q.get("wait") === "1") {
+        const w0 = await waitSamples();
+        if (!w0) { bar("PROBE click :: ERROR samples never became ready"); return; }
+      }
+      await clickRemember(name);
+      await w.refreshIdentities();
+      bar("PROBE click :: status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(cls(w, "face-status")) +
+          " list=" + JSON.stringify(listText(w)) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "reg") {
+      /* Registration that may have to wait for three sampled frames: the
+       * samples-missing answer is itself a contract path, so retry while the
+       * status line reports "analysed frames". */
+      const name = q.get("name") || "Verifier Ng";
+      if (q.get("wait") === "1") {
+        const w0 = await waitSamples();
+        if (!w0) { bar("PROBE reg :: ERROR samples never became ready"); return; }
+      }
+      let attempts = 0, firstReply = null;
+      for (let a = 0; a < 6; a++) {
+        attempts++;
+        el(w, "face-name").value = name;
+        el(w, "face-remember").click();
+        await until(() => (txt(w, "face-status") ? true : null));
+        const s = txt(w, "face-status");
+        if (firstReply === null) firstReply = s;
+        if (!/analysed frames/.test(s)) break;
+        await pace(120);
+      }
+      await w.refreshIdentities();
+      const fileList = (await (await realFetch("/api/faces/known")).json()).known;
+      bar("PROBE reg :: name=" + JSON.stringify(name) +
+          " attempts=" + attempts +
+          " firstReply=" + JSON.stringify(firstReply) +
+          " status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(cls(w, "face-status")) +
+          " list=" + JSON.stringify(listText(w)) +
+          " serverKnown=" + JSON.stringify(fileList) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "del") {
+      const target = q.get("name");
+      await until(() => Array.from(el(w, "face-list").querySelectorAll("li .who"))
+        .some((n) => n.textContent === target));
+      const before = (await (await realFetch("/api/faces/known")).json()).known;
+      const row = Array.from(el(w, "face-list").querySelectorAll("li")).find(
+        (li) => li.querySelector(".who") && li.querySelector(".who").textContent === target);
+      if (!row) { bar("PROBE del :: ERROR row not found for " + JSON.stringify(target)); return; }
+      row.querySelector("button.x").click();
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === before.length - 1);
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      await w.refreshIdentities();
+      bar("PROBE del :: removed=" + JSON.stringify(target) +
+          " before=" + JSON.stringify(before) +
+          " after=" + JSON.stringify(after) +
+          " listNow=" + JSON.stringify(listText(w)) +
+          " status=" + JSON.stringify(txt(w, "face-status")) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "clickempty") {
+      await clickRemember("");
+      bar("PROBE clickempty :: status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(cls(w, "face-status")));
+    } else if (caz === "clickfast") {
+      /* The early poller below already clicked; just read the outcome. */
+      await until(() => (txt(w, "face-status") ? true : null), 1500);
+      bar("PROBE clickfast :: status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(cls(w, "face-status")) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "list") {
+      const names = JSON.parse(q.get("expect") || "[]");
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length >= names.length);
+      await w.refreshIdentities();
+      await until(() => txt(w, "m-identities") !== "-");
+      const injected = el(w, "face-list").querySelectorAll("img,svg,b,script").length;
+      bar("PROBE list :: rows=" + el(w, "face-list").querySelectorAll("li").length +
+          " names=" + JSON.stringify(listText(w)) +
+          " injectedElems=" + injected +
+          " pwned=" + (w.__pwned || 0) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "subthresh") {
+      /* Fabricated out-of-contract payload through the REAL render path:
+       * the server only ships identities that cleared 0.6; prove the panel
+       * does not invent a name for one that never could have. */
+      await w.refreshIdentities();
+      w.render({ width: 320, height: 240, face_identities: {
+        state: "running", seen: 1,
+        identities: [{ name: "Low Conf", confidence: 0.59, bbox: [0, 0, 1, 1] }],
+      }});
+      const shown = txt(w, "m-identities");
+      /* Also the honest running-with-no-match payload. */
+      w.render({ width: 320, height: 240, face_identities: {
+        state: "running", seen: 1, identities: [],
+      }});
+      const shown2 = txt(w, "m-identities");
+      bar("PROBE subthresh :: fabricated0.59=" + JSON.stringify(shown) +
+          " seenButNoMatch=" + JSON.stringify(shown2));
+    } else if (caz === "measure") {
+      const d = w.document;
+      const pick = (sel) => Array.from(d.querySelectorAll(sel)).filter(
+        (n) => n.offsetParent !== null || n.getClientRects().length);
+      const rows = [];
+      const groups = {
+        "h2 sections": pick("main .section h2"),
+        "labels(dt,label,.reg-label,.hint,.controls label)": pick("dt, label, .reg-label, .hint, .controls .lbl"),
+        "values(dd)": pick("dd"),
+        "buttons+selects+inputs": pick("button, select, input"),
+        "status+empty+names": pick("#face-status, #face-list li, .names li"),
+        "osd": pick("#src-label, #time-label"),
+        "peak": pick("#m-peak"),
+        "clip rows": pick("#clips li"),
+      };
+      let minFont = 1e9, minLabelFont = 1e9, minValueFont = 1e9, minContrast = 1e9;
+      let minLH = 1e9, overflowers = [];
+      const all = pick("body *");
+      for (const [g, nodes] of Object.entries(groups)) {
+        let fs = [], cs = [];
+        for (const n of nodes) {
+          const s = w.getComputedStyle(n);
+          const px = parseFloat(s.fontSize);
+          fs.push(px);
+          cs.push(+contrast(w, n).toFixed(2));
+          const lh = s.lineHeight === "normal" ? px * 1.2 : parseFloat(s.lineHeight);
+          if (lh / px < minLH) minLH = +(lh / px).toFixed(2);
+        }
+        if (fs.length) {
+          const gMin = Math.min(...fs);
+          if (gMin < minFont) minFont = gMin;
+          if (/labels|h2|status/.test(g) && gMin < minLabelFont) minLabelFont = gMin;
+          if (/values/.test(g) && gMin < minValueFont) minValueFont = gMin;
+          const gMinC = Math.min(...cs);
+          if (gMinC < minContrast) minContrast = gMinC;
+          rows.push(g + ": fontMin=" + Math.min(...fs) + " fontMax=" + Math.max(...fs) +
+            " contrastMin=" + Math.min(...cs));
+        }
+      }
+      for (const n of all) {
+        if (n.scrollWidth > n.clientWidth + 1 && n.clientWidth > 0 &&
+            !/HTML|BODY|MAIN/.test(n.tagName))
+          overflowers.push(n.tagName + "." + String(n.className).split(" ")[0] +
+            ":" + n.scrollWidth + ">" + n.clientWidth);
+      }
+      const secs = Array.from(d.querySelectorAll("main .section"));
+      const tops = secs.map((s) => Math.round(s.getBoundingClientRect().top) + ":" + s.id);
+      let minGap = 1e9;
+      for (let i = 1; i < secs.length; i++) {
+        const a = secs[i - 1].getBoundingClientRect(), b = secs[i].getBoundingClientRect();
+        if (Math.abs(a.left - b.left) < 10) {
+          const gap = b.top - a.bottom;
+          if (gap < minGap) minGap = Math.round(gap);
+        }
+      }
+      const dde = pick("dd").filter((n) => n.scrollWidth > n.clientWidth + 1);
+      bar("PROBE measure :: docW=" + d.documentElement.scrollWidth + "/" + d.documentElement.clientWidth +
+          " minFont=" + minFont + " minLabel=" + minLabelFont + " minValue=" + minValueFont +
+          " minContrast=" + minContrast + " minLineH=" + minLH +
+          " minSectionGap=" + minGap + " clippedDD=" + dde.length +
+          " overflow=" + overflowers.length);
+      detail("FONTS/CONTRAST " + rows.join("  ||  ") +
+          "  || OVERFLOWERS " + JSON.stringify(overflowers.slice(0, 12)) +
+          "  || SECTIONS-TOP " + JSON.stringify(tops) +
+          "  || CLIPPED-DD " + JSON.stringify(dde.map((n) => (n.previousElementSibling || {}).textContent)));
+    } else if (caz === "order") {
+      const d = w.document;
+      const secs = Array.from(d.querySelectorAll("main .section"));
+      const byH2 = {};
+      secs.forEach((s) => {
+        const h = s.querySelector("h2");
+        if (h) byH2[h.childNodes[0].textContent.trim()] = Math.round(s.getBoundingClientRect().top);
+      });
+      const seen = [
+        "stage@" + Math.round(el(w, "stage").getBoundingClientRect().top),
+        "controls@" + Math.round(d.querySelector(".controls").getBoundingClientRect().top),
+        "hint@" + Math.round(el(w, "zone-help").getBoundingClientRect().top),
+        "registry@" + Math.round(el(w, "face-registry").getBoundingClientRect().top),
+      ].concat(Object.entries(byH2).map(([k, v]) => k + "@" + v));
+      const ops = ["apply", "clear-roi", "view-source", "view-decoded", "snapshot", "record", "metrics"];
+      const hiddenOps = ops.filter((id) => {
+        const n = el(w, id);
+        if (!n) return true;
+        const r = n.getBoundingClientRect();
+        return r.width < 2 || r.bottom < 0 || r.top > d.documentElement.clientHeight;
+      });
+      bar("PROBE order :: " + seen.join(" ") +
+          " hiddenOps=" + JSON.stringify(hiddenOps) +
+          " scrollW=" + d.documentElement.scrollWidth + "/" + d.documentElement.clientWidth);
+    } else {
+      bar("PROBE unknown case " + caz);
+    }
+  } catch (e) {
+    bar("PROBE " + caz + " ERROR :: " + e.message);
+  }
+}
+
+if (caz === "clickfast") {
+  /* Press the moment app.js wires the button -- do not wait for the MJPEG
+   * <img> 'load' event, which lands after the warmup window closes. */
+  (async () => {
+    const w0 = f.contentWindow;
+    const rf = w0.fetch.bind(w0);
+    for (let i = 0; i < 1500; i++) {
+      try {
+        const d = w0.document;
+        const b = d && d.getElementById && d.getElementById("face-remember");
+        if (b && b.onclick) {
+          d.getElementById("face-name").value = "Early Bird";
+          b.click();
+          break;
+        }
+      } catch (e) { /* document mid-navigation */ }
+      await rf("/api/faces/known").catch(() => null);
+    }
+    runCase();
+  })();
+} else {
+  f.addEventListener("load", runCase);
+}
+</script>
+</body></html>

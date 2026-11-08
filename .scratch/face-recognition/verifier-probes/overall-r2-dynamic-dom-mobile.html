@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  html, body { margin:0; background:#000; }
+  #bar { min-height:18px; background:#ffee58; color:#000; font:12px/1.5 monospace;
+         padding:2px 8px; white-space:pre-wrap; word-break:break-all; }
+  #detail { display:none; }
+  #f { border:0; display:block; }
+</style>
+</head><body><div id="bar">VP 390x844 :: docW=375/375 docH=1735 minFont=12 labelMin=14 valueMin=15 minContrast=7.73 minLH=1.5 bodyLH=1.50 minSectionGap=24 clippedDD=0 wide=1 opsOffscreen=[]</div>
+<div id="detail">GROUPS h2 f14-14 c11.94 || labels f14-14 c7.73 || values f15-15 c7.73 || controls f14-15 c8.97 || status+names f14-14 c7.73 || osd+peak f12-12 c7.73 || LAYOUT rowgap=16px display=grid || SEC[1] margin=8px padding=16px border=1px || WIDE ["SPAN.sr-only"] || CLIPDD [] || SECTIONS ["StreamRVM1 · H.264-style hybrid@857","Transport@1103","Analysis@1342","face-registry@645","Clips@1638"]</div>
+<iframe id="f" src="/" style="width: 390px; height: 844px; position: absolute; left: 0px; top: 30px;"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const W = parseInt(q.get("w") || "1440", 10);
+const H = parseInt(q.get("h") || "1000", 10);
+const doMeasure = q.get("measure") === "1";
+const f = document.getElementById("f");
+f.style.width = W + "px";
+f.style.height = H + "px";
+f.style.position = "absolute";
+f.style.left = "0";
+f.style.top = "30px";
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const detail = (m) => { document.getElementById("detail").textContent = m; };
+
+function lum(rgb) {
+  const m = rgb.match(/[\d.]+/g).map(Number);
+  const c = m.slice(0, 3).map((v) => {
+    v /= 255;
+    return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  });
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
+function bgOf(w, n) {
+  while (n) {
+    const bg = w.getComputedStyle(n).backgroundColor;
+    if (bg && bg !== "rgba(0, 0, 0, 0)" && bg !== "transparent") return bg;
+    n = n.parentElement;
+  }
+  return w.getComputedStyle(w.document.body).backgroundColor;
+}
+function contrast(w, n) {
+  const fg = lum(w.getComputedStyle(n).color);
+  const bg = lum(bgOf(w, n));
+  return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+}
+
+async function measure() {
+  const w = f.contentWindow;
+  const realFetch = w.fetch.bind(w);
+  const tick = () => realFetch("/api/faces/known").catch(() => null);
+  const until = async (cond, tries = 600) => {
+    for (let i = 0; i < tries; i++) { const v = cond(); if (v) return v; await tick(); }
+    return null;
+  };
+  try {
+    /* Wait for first telemetry render: any dd not pending. */
+    await until(() => w.document.querySelectorAll("dd:not(.pending)").length > 3, 900);
+    const d = w.document;
+    const pick = (sel) => Array.from(d.querySelectorAll(sel)).filter(
+      (n) => n.getClientRects().length);
+    const groups = {
+      "h2": pick("main .section h2"),
+      "labels": pick("dt, .reg-label, .hint, .controls label, .clip-sub, .empty, .meta"),
+      "values": pick("dd"),
+      "controls": pick("button, select, input"),
+      "status+names": pick("#face-status, #face-list li"),
+      "osd+peak": pick("#src-label, #time-label, #m-peak, .alarm, .track-tag"),
+    };
+    let minFont = 1e9, minLabelFont = 1e9, minValueFont = 1e9;
+    let minContrast = 1e9, minLH = 1e9;
+    const rows = [];
+    const bodyLH = parseFloat(w.getComputedStyle(d.body).lineHeight) /
+                   parseFloat(w.getComputedStyle(d.body).fontSize);
+    for (const [g, nodes] of Object.entries(groups)) {
+      const fs = [], cs = [];
+      for (const n of nodes) {
+        const s = w.getComputedStyle(n);
+        const px = parseFloat(s.fontSize);
+        fs.push(px);
+        cs.push(+contrast(w, n).toFixed(2));
+      }
+      if (!fs.length) continue;
+      const gMinF = Math.min(...fs), gMinC = Math.min(...cs);
+      rows.push(g + " f" + Math.min(...fs) + "-" + Math.max(...fs) + " c" + Math.min(...cs));
+      if (gMinF < minFont) minFont = gMinF;
+      if (g === "labels" || g === "h2" || g === "status+names") { if (gMinF < minLabelFont) minLabelFont = gMinF; }
+      if (g === "values" && gMinF < minValueFont) minValueFont = gMinF;
+      if (gMinC < minContrast) minContrast = gMinC;
+    }
+    /* line-height across readable text */
+    for (const n of pick("dt, dd, label, button, select, input, li, p, h2")) {
+      const s = w.getComputedStyle(n);
+      const px = parseFloat(s.fontSize);
+      const lh = s.lineHeight === "normal" ? px * 1.2 : parseFloat(s.lineHeight);
+      if (lh / px < minLH) minLH = +(lh / px).toFixed(2);
+    }
+    /* section gaps (vertical neighbours only) */
+    const secs = Array.from(d.querySelectorAll("main .section"));
+    let minGap = 1e9;
+    const sorted = secs.slice().sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top);
+    for (let i = 1; i < sorted.length; i++) {
+      const a = sorted[i - 1].getBoundingClientRect(), b = sorted[i].getBoundingClientRect();
+      if (Math.abs(a.left - b.left) < 10) {
+        const gap = b.top - a.bottom;
+        if (gap < minGap) minGap = Math.round(gap);
+      }
+    }
+    /* overflow + clipped readouts + ops offscreen */
+    const clipDD = pick("dd").filter((n) => n.scrollWidth > n.clientWidth + 1);
+    const wide = pick("body *").filter((n) =>
+      n.scrollWidth > n.clientWidth + 1 && n.clientWidth > 0 &&
+      !/HTML|BODY|MAIN|SECTION|DL/.test(n.tagName));
+    const ops = ["apply", "clear-roi", "view-source", "view-decoded", "snapshot", "record", "metrics", "face-remember"];
+    const hiddenOps = ops.filter((id) => {
+      const n = w.document.getElementById(id);
+      if (!n) return true;
+      const r = n.getBoundingClientRect();
+      return r.width < 2 || r.left < -1 || r.right > d.documentElement.clientWidth + 1;
+    });
+    bar("VP " + W + "x" + H + " :: docW=" + d.documentElement.scrollWidth + "/" + d.documentElement.clientWidth +
+        " docH=" + Math.round(d.documentElement.scrollHeight) +
+        " minFont=" + minFont + " labelMin=" + minLabelFont + " valueMin=" + minValueFont +
+        " minContrast=" + minContrast.toFixed(2) + " minLH=" + minLH + " bodyLH=" + bodyLH.toFixed(2) +
+        " minSectionGap=" + minGap + " clippedDD=" + clipDD.length +
+        " wide=" + wide.length + " opsOffscreen=" + JSON.stringify(hiddenOps));
+    const lay = w.getComputedStyle(d.querySelector("main.layout"));
+    const sec2 = secs.length > 1 ? w.getComputedStyle(secs[1]) : null;
+    detail("GROUPS " + rows.join(" || ") +
+        " || LAYOUT rowgap=" + lay.rowGap + " display=" + lay.display +
+        " || SEC[1] margin=" + (sec2 ? sec2.marginTop : "?") + " padding=" + (sec2 ? sec2.paddingTop : "?") + " border=" + (sec2 ? sec2.borderTopWidth : "?") +
+        " || WIDE " + JSON.stringify(wide.slice(0, 10).map((n) => n.tagName + "." + String(n.className).split(" ")[0])) +
+        " || CLIPDD " + JSON.stringify(clipDD.map((n) => (n.previousElementSibling || {}).textContent)) +
+        " || SECTIONS " + JSON.stringify(secs.map((s) => {
+          const r = s.getBoundingClientRect();
+          return (s.id || (s.querySelector("h2") || {}).textContent) + "@" + Math.round(r.top);
+        })));
+  } catch (e) {
+    bar("VP " + W + "x" + H + " ERROR :: " + e.message);
+  }
+}
+
+f.addEventListener("load", () => {
+  if (doMeasure) measure(); else {
+    const w = f.contentWindow;
+    bar("VP " + W + "x" + H + " static shot");
+  }
+});
+</script>
+</body></html>
+条目 00-r2-032 → C:\Users\joe\Desktop\工作学习\study 2026-2027 sem1\EIE4428-Multimedia-Communications\mini-project\EIE4428-RVM\EIE4428-RVM\.scratch\face-recognition\ledger\00-r2.jsonl（退出码 0；输入 0 条 / 产物 2 条）

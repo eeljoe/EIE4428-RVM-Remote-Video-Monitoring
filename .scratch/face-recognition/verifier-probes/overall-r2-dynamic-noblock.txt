@@ -1,0 +1,4 @@
+POST took 1429 ms -> 201 {"name": "Slow Person Two", "samples": 3, "known": ["Gate Two", "Slow Person", "Slow Person Two"]}
+status polls 159, max gap 0.216s, errors []
+mjpeg bytes 16384
+条目 00-r2-019 → C:\Users\joe\Desktop\工作学习\study 2026-2027 sem1\EIE4428-Multimedia-Communications\mini-project\EIE4428-RVM\EIE4428-RVM\.scratch\face-recognition\ledger\00-r2.jsonl（退出码 0；输入 1 条 / 产物 1 条）
