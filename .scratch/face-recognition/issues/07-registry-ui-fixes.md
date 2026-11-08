@@ -1,6 +1,6 @@
 # 07 — 收口 04 门留下的两处缺陷
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 04
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/07-registry-ui-fixes-selfcheck.md`）
 **UI:** yes
@@ -127,3 +127,5 @@ chrome --headless=new --disable-gpu --virtual-time-budget=20000 --window-size=14
   「这段时间没有写」，比较值比比较大小更难写错 / 影响面：无。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED 171b9bc — 三处整改全部亲核闭环：README 与实现一致（两态真机点击实测）、loadNames 版本戳在旧字节上亲手复现红、新字节绿且删除路径同护；docstring 归位、定向 67/0、全套 570/0、03/04 回归不回退。｜报告：.scratch/face-recognition/reports/07-r1-verifier.md｜模型路线：SWE-2 High

@@ -120,3 +120,15 @@ r2:
    - 决定：子进程测试标 `pytest.mark.slow` / 理由：单条约 5 s，是套件里最慢的一条，标记只为可读性（默认不筛） / 影响面：`--strict-markers` 下 marker 已在 `pyproject.toml` 注册，无新增配置。
    - 决定：不收编 02-mirror-sync / 06-race / 02-pumpguard 探针 / 理由：它们的断言已逐条落在 `tests/test_face_api.py:519,538,552,574` 与 `tests/test_face_store.py:290,330` / 影响面：套件不新增重复测试；清单与逐条对应写在报告里。
    - 决定：测试文件压到 300 行（票面上限）而把真机读数放探针 / 理由：尺寸上限，且真机读数不属于套件回归 / 影响面：`05-integration-selfcheck.*` 三个文件在探针目录，不改历史探针。
+
+### 票 7
+
+- 决定：把两条与注册无关的断言移进独立类 `TestMeasuredClaimsMatchTheImplementation`，
+  而不是只删掉孤儿 docstring / 理由：门 FINDINGS-4 同时点了「docstring 是死语句」
+  与「无关断言混入新类名下」两件事，只删注释会留下后半句 / 影响面：
+  `tests/test_report.py` +3 行，两条测试的断言与执行不变。
+- 决定：版本戳由**写路径**自增（`renderWrittenNames`），读路径只比较不自增 /
+  理由：只有写拥有更新的真相，读自增会让两次并发读互相作废 / 影响面：任何绕过
+  `renderWrittenNames` 的新写路径都会失去保护。
+- 决定：守卫用 `stamp !== namesStamp` 而不是 `<` / 理由：戳是单调计数器，相等即
+  「这段时间没有写」，比较值比比较大小更难写错 / 影响面：无。
