@@ -86,3 +86,4 @@ cd <repo>; .\.venv\Scripts\python.exe -m pytest tests/test_face_api.py -q -k can
 ## Verdicts
 
 - 2026-11-09 r1 VERIFIED 26b75ad — 新 4 条含点参数走真 HTTP（aiohttp TestServer 真端口）注册 201 且名单文件未损坏；亲手三发变异（含点即拒 / startswith / endswith）全部按正确范围变红，还原 sha1 一致后复绿；定向 48、全套 594 绿，产品面对 08 基线零改动。｜报告：.scratch/face-recognition/reports/09-r1-verifier.md｜模型路线：未标注（派发未带 --model）
+- 2026-11-09 r1 VERIFIED 26b75ad — 新 4 条含点参数走真 HTTP（aiohttp TestServer 真端口）注册 201 且名单文件未损坏；亲手三发变异（含点即拒 / startswith / endswith）全部按正确范围变红，还原 sha1 一致后复绿；定向 48、全套 594 绿，产品面对 08 基线零改动。｜报告：.scratch/face-recognition/reports/09-r1-verifier.md｜模型路线：swe-2-high
