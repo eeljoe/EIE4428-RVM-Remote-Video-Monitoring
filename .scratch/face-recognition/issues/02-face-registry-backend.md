@@ -1,6 +1,6 @@
 # 02 — 服务端人脸注册与持久化
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:**
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/02-face-registry-backend-selfcheck.md`）
 
@@ -172,3 +172,4 @@
 ## Verdicts
 
 - 2026-11-09 r1 REJECTED 5adcede — 动态证据全面通过，但一处「名单→识别器镜像同步」变异在全套 541 测试下存活（非等价：注册后本会话识别不到新脸），套件对此行为无牙；另发现混维名单文件可致死 pump 任务的降级缺陷。｜报告：.scratch/face-recognition/reports/02-r1-verifier.md｜模型路线：swe-2-high
+- 2026-11-09 r2 VERIFIED 3486a02 — 三条整改全部拿到本轮新鲜证据（杀手测试收编且杀变异、等长校验＋宽度守卫在真泵上堵住致死路径、并发同名恰一 201 一 409），r1 判据回归无回退，变异 5/5 被杀；新发现一条 register-vs-remove 丢更新残留（Important，非判据违反）。｜报告：.scratch/face-recognition/reports/02-r2-verifier.md｜模型路线：swe-2-high
