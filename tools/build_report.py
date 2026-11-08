@@ -158,6 +158,15 @@ SPECIAL_FEATURES = [
     "zero-crossing rate and spectral centroid separate loud sound, speech, silence, "
     "gunshot, glass break and alarm. Audio is analysed locally and is not streamed, "
     "which is stated as a limitation rather than implied otherwise.",
+
+    "Face registration from the operator page instead of from code: a name is typed "
+    "into the FACE REGISTRY panel and REMEMBER FACE averages one face from each of "
+    "the last three analysed frames into data/known_faces.json, after which that "
+    "person is identified by name and similarity on the dashboard and can be "
+    "forgotten again from the same list. Only the name and the landmark embedding "
+    "are stored -- no photograph is written -- and the list is neither committed to "
+    "the repository nor included in the delivery archive: a name attached to "
+    "biometric data is personal data, so each machine enrols its own list.",
 ]
 
 ACHIEVEMENTS = [
@@ -414,6 +423,16 @@ UI_DESIGN = [
     "that difference. The label at the bottom of the picture states which of the "
     "two is on screen, so the operator is never in doubt about what the audience "
     "is looking at.",
+
+    "A FACE REGISTRY section sits between the analysis readouts and the clip list. "
+    "It holds one label, one text input, one REMEMBER FACE button, one status line "
+    "and the saved names. The status line is the only feedback and it always "
+    "occupies the same line, so a message appearing never shifts the layout: it "
+    "reports the save with the number of frames averaged, or the reason nothing was "
+    "saved -- no face in the frame, more than one face in the frame, a name already "
+    "saved, analysis off, the models still loading. Each saved name is a row with a "
+    "delete control, and an empty list says so in words rather than showing a blank "
+    "block.",
 ]
 
 CONCLUSIONS = [

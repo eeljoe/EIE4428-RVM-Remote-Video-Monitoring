@@ -98,6 +98,33 @@ second polling loop.
 | `GET` | `/api/gestures` | `{count, gestures[], state}` | `state` |
 | `GET` | `/api/audio/events` | `{count, events[], running}` | `running` (the capture either runs or does not) |
 | `POST` | `/api/audio/control` | `{"enabled": true}` starts or stops the microphone | returned `running` / `available` / `reason` |
+| `GET` | `/api/faces/known` | `{"known": ["Alice Ng", ...]}` — the registered names | none (a list, not an observation) |
+| `POST` | `/api/faces/known` | `{"name": "Alice Ng"}` → `201 {"name", "samples", "known"}` | failure body `{"error", "reason"}` |
+| `DELETE` | `/api/faces/known/{name}` | `{"removed": true, "known": [...]}`, `404` when the name is not there | failure body `{"error", "reason"}` |
+
+## Face registration
+
+The dashboard's **FACE REGISTRY** section is the enrolment path: type a name,
+press `REMEMBER FACE`, and the server averages one face from each of the last
+three analysed frames (three embeddings, one mean vector) and publishes the
+result. The panel then shows the person as `name · similarity` on the Face IDs
+line, and the list under the button is the stored list, with a delete `×` per
+row. Changes appear in place — no page reload, and the stream keeps running
+because the sampling happens on a worker thread.
+
+Failures are enumerated in the response body, and each one has exactly one line
+of copy on the panel: `no-face` and `multiple-faces` are `409` (nothing is
+sampled and no file is written), `name-exists` is `409` (the old vector is never
+overwritten), `analysis-disabled` and `models-loading` are `503`,
+`samples-missing` is `409` (fewer than three analysed frames so far),
+`bad-name` is `400`, `unavailable` is `503` and `write-failed` is `500`.
+
+The list lives in `data/known_faces.json` (`--known-faces` moves it) as
+`{"version": 1, "faces": {name: [embedding]}}`. It holds **names and embeddings
+only — no photograph** — and it is git-ignored and outside the delivery zip's
+whitelist: names are personal data, so each machine enrols its own list. A
+missing file is an empty list; a corrupt one is reported at start-up and treated
+as empty rather than being allowed to take the server down.
 
 ## Reported states
 
@@ -141,12 +168,16 @@ behaviour is auditable and their cost is bounded.
 
 ## Limitations (stated plainly)
 
-- **Face identification has no enrolment path.** There is no camera-side
-  "remember this person" flow, so unless `FaceRecognizer.add_known_face()` is
-  called from code the honest answer is `no-known-faces` plus a count of faces
-  seen. The embedding is the flattened landmark vector compared by Euclidean
-  distance, and `confidence = 1 − distance` is a similarity score with an
-  arbitrary scale, not a probability — the threshold is a distance cut-off.
+- **Face identification's enrolment is the dashboard, and it is deliberately
+  narrow.** A name is registered from the FACE REGISTRY panel (or `POST
+  /api/faces/known`), from three analysed frames each holding exactly one face,
+  so the pose the person demonstrates in is the pose that is stored — a profile
+  shot will not recognise a face registered from the front. The embedding is the
+  flattened landmark vector compared by Euclidean distance, and `confidence = 1
+  − distance` is a similarity score with an arbitrary scale, not a probability:
+  the threshold is a distance cut-off, and a face below it simply has no name on
+  the Face IDs line. Only names and embeddings are stored, never a photograph,
+  and the list is neither committed nor shipped: each machine enrols its own.
 - **A face costs two inferences per tick.** `FaceRecognizer` and
   `EmotionRecognizer` each build their own landmarker from the same model file
   (one without blendshapes, one with). Sharing one instance per frame would

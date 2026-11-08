@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>04 selfcheck harness</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0d0e; }
+  iframe { display: block; width: 100vw; height: 100vh; border: 0; }
+</style>
+</head>
+<body>
+<!-- SELF-CHECK ONLY. Not part of the product: deleted before the commit.
+     The operator page in the iframe is the real page served by the real
+     server, running the real app.js against the real /api endpoints. This
+     harness only does what a person would do with the mouse and keyboard:
+     it puts a name in the box and clicks the button, or clicks a delete
+     cross. The only fake is the fetch stub used by case=success /
+     case=multi / case=loading, where the synthetic camera has no real face
+     to enrol (documented in the probe note). -->
+<iframe id="app" src="/"></iframe>
+<script>
+const params = new URLSearchParams(location.search);
+const scenario = params.get("case") || "empty";
+const name = params.get("name") || "Alice Ng";
+const frame = document.getElementById("app");
+
+frame.addEventListener("load", () => {
+  const win = frame.contentWindow;
+  const doc = frame.contentDocument;
+  const box = doc.getElementById("face-name");
+  const remember = doc.getElementById("face-remember");
+  const realFetch = win.fetch.bind(win);
+
+  const click = (node) => node.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+  const stub = (body, status) => {
+    win.fetch = (url, options) => {
+      if (String(url).indexOf("/api/faces/known") !== -1) {
+        return Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: status,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+      }
+      return realFetch(url, options);
+    };
+  };
+
+  const typeAndClick = () => {
+    box.value = name;
+    click(remember);
+  };
+
+  switch (scenario) {
+    case "noface":
+    case "exists":
+    case "off":
+      typeAndClick();
+      break;
+    case "loading":
+      // No delay: the click has to land while the server is still warming up.
+      setTimeout(typeAndClick, 150);
+      break;
+    case "badname":
+      box.value = "";
+      click(remember);
+      break;
+    case "multi":
+      stub({ error: "2 faces were found; register one person at a time", reason: "multiple-faces" }, 409);
+      typeAndClick();
+      break;
+    case "loadingstub":
+      stub({ error: "the face models are still loading", reason: "models-loading" }, 503);
+      typeAndClick();
+      break;
+    case "success":
+      stub({ name: name, samples: 3, known: [name, "Marcus Foo"] }, 201);
+      typeAndClick();
+      break;
+    case "delete":
+      click(doc.querySelector("#face-list .x"));
+      break;
+    default:
+      break;
+  }
+
+  // The rail scrolls on its own below the fold; a person would scroll it with
+  // the wheel, and the harness does the same so the shot shows the list.
+  if (params.get("scroll")) {
+    setTimeout(() => {
+      doc.getElementById("face-list").scrollIntoView({ block: "end" });
+    }, 900);
+  }
+});
+</script>
+</body>
+</html>

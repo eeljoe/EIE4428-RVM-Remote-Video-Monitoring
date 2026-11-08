@@ -87,10 +87,12 @@ async def test_stylesheet_supports_focus_reduced_motion_and_mobile(client):
 async def test_operator_page_loads_no_remote_frontend_assets(client):
     html = await (await client.get("/")).text()
     css = await (await client.get("/static/style.css")).text()
+    script = await (await client.get("/static/app.js")).text()
 
     assert not re.search(r'(?:src|href)=["\'](?:https?:)?//', html)
     assert not re.search(r'url\(\s*["\']?(?:https?:)?//', css)
     assert not re.search(r'@import\s+["\'](?:https?:)?//', css)
+    assert not re.search(r'["\']https?://', script)
 
 
 async def test_client_script_is_served(client):
@@ -652,3 +654,95 @@ async def test_the_registry_section_holds_the_name_input_and_the_list(client):
     sections = re.findall(r'class="section\b[^"]*"', html)
     assert len(sections) == 5
     assert "registry" in sections[3], "the registry is not the fourth section"
+
+
+# --------------------------------------------------------------------------
+# Face registry
+#
+# The registry is wired in the browser, so the static half of its evidence is
+# read out of the served script: which endpoints it calls, that a typed name can
+# only ever become a text node or an attribute, and that the five outcomes of
+# the contract each have one line of copy.  The dynamic half (a real server, a
+# real click, real 409 bodies) is the verifier's, not this suite's.
+# --------------------------------------------------------------------------
+
+
+def registry_block(script: str) -> str:
+    """The face-registry section of ``app.js``, delimited by its own comment."""
+    assert "face registry" in script, "the script has no face-registry section"
+    return script.split("face registry", 1)[1].split("/* ---- recorded clips", 1)[0]
+
+
+async def test_the_registry_calls_the_three_contract_endpoints(client):
+    """AS-1: save, list and forget go through the contract's own paths."""
+    script = await (await client.get("/static/app.js")).text()
+    registry = registry_block(script)
+
+    assert '"/api/faces/known"' in registry
+    assert '"/api/faces/known/" + encodeURIComponent(name)' in registry
+    assert 'method: "DELETE"' in registry
+    # The identity line is refreshed in place after a change: a registration
+    # must not reload the page and lose the live picture.
+    assert '"/api/faces/identities"' in registry
+    assert "location.reload" not in script
+
+
+async def test_the_registry_writes_a_name_as_text_never_as_markup(client):
+    """AS-1: a name is operator-typed personal data, so it is never HTML."""
+    script = await (await client.get("/static/app.js")).text()
+    registry = registry_block(script)
+
+    assert 'createElement("li")' in registry
+    assert "textContent" in registry
+    assert "dataset.name = name" in registry
+    assert "innerHTML" not in registry
+    assert "insertAdjacentHTML" not in registry
+    assert "outerHTML" not in registry
+
+
+async def test_the_registry_status_line_carries_the_five_outcomes(client):
+    """AS-1/AS-4: one status line, the contract's reasons, the ticket's wording."""
+    script = await (await client.get("/static/app.js")).text()
+    registry = registry_block(script)
+
+    for reason in (
+        "no-face",
+        "multiple-faces",
+        "name-exists",
+        "analysis-disabled",
+        "models-loading",
+    ):
+        assert f'"{reason}"' in registry, reason
+
+    for copy in (
+        " frames averaged",  # Saved as <name>, 3 frames averaged
+        "no face in frame, hold still",
+        "more than one face in frame",
+        " is already saved",
+        "analysis is off",
+        "models still loading",
+    ):
+        assert copy in registry, copy
+
+    for kind in ('setStatus("ok"', 'setStatus("err"', 'setStatus("warn"'):
+        assert kind in registry, kind
+
+
+async def test_face_ids_print_the_name_with_its_similarity(client):
+    """AS-2: `Alice Ng · 0.82`; an empty known list reports the faces seen.
+
+    The readout is built from ``result.identities`` alone.  A face the
+    recogniser did not match is not in that list, and the registered names are
+    not a second source, so a similarity below the threshold cannot put a name
+    on the line.
+    """
+    script = await (await client.get("/static/app.js")).text()
+
+    assert 'item.name + " · " + Number(item.confidence).toFixed(2)' in script
+    assert '" faces, none known"' in script
+
+    block = script.split("function faceIdentitiesText", 1)[1].split("function render", 1)[0]
+    assert "result.identities" in block
+    assert "renderNames" not in block, "the identity line reads the registry list"
+    assert '"face-list"' not in block
+    assert "m-identities" in script

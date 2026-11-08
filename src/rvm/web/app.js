@@ -56,6 +56,37 @@ function analysisText(result, field, emptyLabel, limit = 3) {
     .join(", ");
 }
 
+/* Face IDs reads differently from the other analysers: a match is a name and a
+ * similarity rather than one word, and the cases an operator actually meets are
+ * "nobody in view" and "faces in view with nothing registered to compare them
+ * against". The recogniser sends an identity only when it cleared the threshold,
+ * so a low similarity has no name to print and nothing here may invent one.
+ *
+ * An empty scene is reported with the count of faces seen as well, because
+ * "nothing in view" and "somebody in view but nobody is registered" are two
+ * different states to act on. The registry list decides which of those two the
+ * line is allowed to claim. */
+let knownNames = [];
+
+function faceIdentitiesText(result) {
+  if (!result) return "-";
+  const state = result.state;
+  if (state === "disabled") return "off";
+  if (state === "pending") return "loading";
+  if (state === "unavailable") return "unavailable";
+  if (state === "error") return "error";
+  if (state === "no-faces") {
+    return knownNames.length ? "no face" : "0 faces, none known";
+  }
+  if (state === "no-known-faces") return (result.seen || 0) + " faces, none known";
+  const identities = result.identities || [];
+  if (!identities.length) return "no face";
+  return identities
+    .slice(0, 3)
+    .map((item) => item.name + " · " + Number(item.confidence).toFixed(2))
+    .join(", ");
+}
+
 function render(s) {
   lastStatus = s;
   setText("m-res", s.width + "×" + s.height);
@@ -76,7 +107,7 @@ function render(s) {
   );
   setText("m-gestures", analysisText(s.gestures, "gestures", "no hand"));
   setText("m-emotions", analysisText(s.emotions, "emotions", "no face"));
-  setText("m-identities", analysisText(s.face_identities, "identities", "no face"));
+  setText("m-identities", faceIdentitiesText(s.face_identities));
   setText("m-audio", s.audio_last || (s.audio_events ? s.audio_events + " events" : "none"));
   setText("m-rec", s.recording ? "recording" : "off");
   setText("src-label", "source: " + (s.source || "-"));
@@ -366,6 +397,11 @@ function wire() {
       alert("Could not clear the zone: " + err.message);
     }
   };
+
+  // The name is sent as typed (trimmed); the server owns what counts as a
+  // usable name, so an empty box is refused by the same 400 as anything else
+  // and the panel prints the server's own sentence for it.
+  $("face-remember").onclick = rememberFace;
 }
 
 /* ---- detection zone ----------------------------------------------------- */
@@ -429,6 +465,160 @@ function wireZone() {
   });
 }
 
+/* ---- face registry ------------------------------------------------------ */
+
+/* The only part of the page that changes a file on the server, so every outcome
+ * is said in words on one line: the save, and the four refusals the contract
+ * can answer with. The list underneath is the file itself -- re-rendered from
+ * the answer to each request, so what is on screen is what was stored, and a
+ * change never needs a page reload that would drop the live picture.
+ *
+ * A name is personal data typed by an operator, so it reaches the DOM as a text
+ * node and as a data-name attribute. String-concatenated markup would let a
+ * name containing a tag or a quote put that tag on the page; these rows are
+ * built with createElement for that reason. */
+const FACE_REASONS = {
+  "no-face": ["err", "no face in frame, hold still"],
+  "multiple-faces": ["err", "more than one face in frame"],
+  "analysis-disabled": ["", "analysis is off"],
+  "models-loading": ["", "models still loading"],
+};
+
+function setStatus(kind, message) {
+  const node = $("face-status");
+  node.className = kind ? "status " + kind : "status";
+  node.textContent = message || "";
+}
+
+function renderNames(names) {
+  const list = $("face-list");
+  const saved = names || [];
+  knownNames = saved;
+  if (!saved.length) {
+    const empty = document.createElement("li");
+    empty.className = "empty";
+    empty.textContent = "No names saved yet";
+    list.replaceChildren(empty);
+    return;
+  }
+  list.replaceChildren(
+    ...saved.map((name) => {
+      const row = document.createElement("li");
+      const who = document.createElement("span");
+      who.className = "who";
+      who.textContent = name;
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "x";
+      remove.textContent = "×";
+      remove.dataset.name = name;
+      remove.title = "Delete " + name;
+      remove.setAttribute("aria-label", "Delete " + name);
+      remove.onclick = () => forgetFace(name);
+      row.append(who, remove);
+      return row;
+    })
+  );
+}
+
+/* One request shape for the three endpoints: the body is either the new list or
+ * the failure the operator has to read. A body that is not JSON is still a
+ * failure, never a silent success. */
+async function faceRequest(path, options) {
+  const response = await fetch(path, options);
+  let body = null;
+  try {
+    body = await response.json();
+  } catch (err) {
+    body = null;
+  }
+  if (!response.ok) {
+    const failure = new Error((body && body.error) || response.statusText);
+    failure.body = body;
+    throw failure;
+  }
+  return body;
+}
+
+/* The answer is the truth about the list; the enumerated reason decides which
+ * line the operator reads. An unmapped reason still gets the server's own words
+ * rather than a generic "failed". */
+function faceFailure(err, name) {
+  const reason = err.body && err.body.reason;
+  if (reason === "name-exists") {
+    setStatus("warn", name + " is already saved");
+    return;
+  }
+  const mapped = FACE_REASONS[reason];
+  if (mapped) {
+    setStatus(mapped[0], mapped[1]);
+    return;
+  }
+  setStatus("err", (err.body && err.body.error) || "the face was not saved");
+}
+
+/* Nothing can be sampled while the models are still loading or the analysers
+ * are switched off -- and those are two of the five answers the panel has to be
+ * able to show, so the button is not greyed out for them: pressing it is how the
+ * operator learns which of the two it is. It is unavailable only while its own
+ * request is in flight, so one click cannot start two registrations. */
+async function rememberFace() {
+  const name = $("face-name").value.trim();
+  $("face-remember").disabled = true;
+  try {
+    const body = await faceRequest("/api/faces/known", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name }),
+    });
+    const saved = body.name || name;
+    setStatus("ok", "Saved as " + saved + ", " + body.samples + " frames averaged");
+    $("face-name").value = "";
+    renderNames(body.known);
+    refreshIdentities();
+  } catch (err) {
+    faceFailure(err, name);
+  } finally {
+    $("face-remember").disabled = false;
+  }
+}
+
+async function forgetFace(name) {
+  try {
+    const body = await faceRequest("/api/faces/known/" + encodeURIComponent(name), {
+      method: "DELETE",
+    });
+    setStatus("", "");
+    renderNames(body.known);
+    refreshIdentities();
+  } catch (err) {
+    faceFailure(err, name);
+  }
+}
+
+/* The page opens with whatever survived the last restart: the list is the file,
+ * which is why it is read from the server rather than kept in the page. */
+async function loadNames() {
+  try {
+    const body = await faceRequest("/api/faces/known", { cache: "no-store" });
+    renderNames(body.known);
+  } catch (err) {
+    /* the empty state stands; a save can still be attempted */
+  }
+}
+
+/* The identity line is the one readout a registration changes, so it is fetched
+ * on the spot instead of waiting up to half a second for the next telemetry
+ * frame. */
+async function refreshIdentities() {
+  try {
+    const response = await fetch("/api/faces/identities", { cache: "no-store" });
+    setText("m-identities", faceIdentitiesText(await response.json()));
+  } catch (err) {
+    /* the next telemetry frame refreshes it */
+  }
+}
+
 /* ---- recorded clips ----------------------------------------------------- */
 
 /* The clip list is a convenience: a failure here must never disturb a live
@@ -486,6 +676,7 @@ wire();
 wireZone();
 setView("source");
 connect();
+loadNames();
 pollClips();
 setInterval(pollClips, 3000);
 tickClock();

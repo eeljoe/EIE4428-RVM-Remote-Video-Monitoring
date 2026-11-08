@@ -55,6 +55,7 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Analysis** | Motion detection with alarm + bounding box, Haar face detection, PSNR / SSIM |
 | **Tracking** | Each moving object keeps an ID and a fading trail across frames — the motion mask is split into connected regions and matched by nearest centroid |
 | **Detection zone** | Drag a box on the picture to watch only that area; three sensitivity levels. The zone lives on the server, so a reload or a second viewer sees the same one |
+| **Face registry** | Type a name on the dashboard and press **REMEMBER FACE**: the server averages one face from each of the last three analysed frames, stores it, and the panel then shows that person as `name · similarity`. Each saved name has a delete `×`, and the list survives a restart |
 | **Clips** | Recording list with a thumbnail of each clip's first frame, served from `/api/clips/<clip>/<n>.jpg` |
 | **Recording** | Timestamped colour JPEG clips written off the live path |
 | **Concurrency** | Unlimited viewers; one encode feeds all of them |
@@ -69,7 +70,7 @@ missing.
 
 | | | Depends on |
 |---|---|---|
-| **Face identification** | MediaPipe landmarks compared against a small known-face database | `mediapipe` |
+| **Face identification** | MediaPipe landmarks compared against a small known-face database; names are enrolled from the dashboard itself | `mediapipe` |
 | **Expression** | Seven weighted sums over blendshapes (happy, sad, angry, surprise, fear, disgust, neutral) | `mediapipe` |
 | **Gestures** | Open palm, fist, pointing, peace, thumbs up/down, OK from 21 hand landmarks | `mediapipe` |
 | **Acoustic events** | Loud sound, speech, silence, gunshot, glass break, alarm from RMS / crossing rate / spectral centroid | `pyaudio` |
@@ -105,6 +106,25 @@ off", "still starting", "broken" and "working on an empty scene" look different 
 the dashboard. Tracking results and individual audio events do not carry one:
 they are lists of observations, and the per-endpoint table in
 [`docs/FEATURES.md`](docs/FEATURES.md) says which payload holds which key.
+
+### Face registration
+
+The **FACE REGISTRY** section enrols a person without leaving the browser: type a
+name, press `REMEMBER FACE`, and the server takes one face from each of the last
+three analysed frames, averages the three embeddings, writes the list and
+answers with one line — `Saved as Alice Ng, 3 frames averaged`, or the reason
+nothing was saved (no face in frame, more than one face, that name already
+saved, analysis off, models still loading). The list under the button is the
+stored list: a registered name appears immediately under Face IDs as
+`Alice Ng · 0.82`, its delete `×` removes it immediately, and both survive a
+restart because the list is a file.
+
+The file is `data/known_faces.json`, and it holds **names and embeddings only,
+never a photograph**. It is git-ignored, and it is not in the delivery zip either
+(`tools/make_zip.py` packs an explicit whitelist that does not include `data/`):
+names are personal data and do not belong in a public repository, so each
+machine enrols its own list. Registering needs the analysis on and the models
+loaded; the button is unavailable for exactly those two states.
 
 ### Measured results
 
@@ -168,6 +188,9 @@ API latency above is the evidence that it does not.
 | `GET` | `/api/features` | Which optional analysers are enabled / available |
 | `GET` | `/api/tracks` | Tracked objects with persistent IDs |
 | `GET` | `/api/faces/identities` | Faces matched against the known-face database |
+| `GET` | `/api/faces/known` | The registered face names |
+| `POST` | `/api/faces/known` | Register the face in view under `{"name": "Alice Ng"}` |
+| `DELETE` | `/api/faces/known/{name}` | Forget a registered name |
 | `GET` | `/api/emotions` | Classified facial expressions |
 | `GET` | `/api/gestures` | Classified hand gestures |
 | `GET` | `/api/audio/events` | Recent acoustic events |
@@ -245,7 +268,9 @@ the encoder's own reconstruction — the picture the receiver actually displays.
 **Known limitations (stated plainly):** video is streamed to the viewer; audio is
 captured and analysed locally for acoustic events but is not coded or streamed,
 so a remote viewer does not receive audio — it does see the event labels in the
-dashboard. The custom codec is a
+dashboard. The face list stores names and embeddings only, never a photograph,
+and the registration sample is three analysed frames, so the angle the person
+demonstrates in is the angle that gets stored. The custom codec is a
 teaching implementation and is considerably less efficient than H.264, which adds larger
 transform blocks, multiple reference frames, deblocking and intra prediction; frame rate is
 bounded by Python rather than by the algorithm, and 640×480 is consequently not real time.

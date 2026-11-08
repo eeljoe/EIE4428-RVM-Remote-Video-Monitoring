@@ -244,7 +244,33 @@ class TestFigure:
         assert any("Figure 1" in p.text for p in built.paragraphs)
 
 
-class TestMeasuredClaimsMatchTheImplementation:
+class TestFaceRegistrationIsDescribed:
+    """The report ships the project's own claim about the registry, so the claim
+    and the implementation have to say the same thing."""
+
+    def test_special_features_describe_the_panel_enrolment(self):
+        joined = " ".join(build_report.SPECIAL_FEATURES)
+
+        assert "REMEMBER FACE" in joined
+        assert "three analysed frames" in joined
+        assert "Face registration from the operator page" in joined
+
+    def test_the_data_limit_is_stated_rather_than_implied(self):
+        joined = " ".join(build_report.SPECIAL_FEATURES)
+
+        # Names and embeddings only: no photograph on disk, and the list is
+        # neither committed nor shipped.
+        assert "known_faces.json" in joined
+        assert "no photograph" in joined
+        assert "neither committed to the repository" in joined
+        assert "delivery archive" in joined
+
+    def test_the_interface_section_describes_the_registry_section(self):
+        joined = " ".join(build_report.UI_DESIGN)
+
+        assert "FACE REGISTRY" in joined
+        assert "status line" in joined
+        assert "delete control" in joined
     """The report quotes measured numbers; keep them tied to the code."""
 
     def test_test_count_claim_matches_the_suite(self):
