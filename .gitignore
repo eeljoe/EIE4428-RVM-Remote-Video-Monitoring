@@ -11,6 +11,8 @@ dist/
 recordings/
 _verify/
 screenshots/
+# Registered names are personal data: every machine registers its own faces.
+data/known_faces.json
 *.jpg
 !docs/figures/*.jpg
 
