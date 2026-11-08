@@ -196,6 +196,12 @@ class StreamSession:
         # both ask the same MediaPipe instance to work: two concurrent calls is
         # not a supported thing to do.
         self._inference_lock = threading.Lock()
+        # One lock for changes to the registry.  Registering checks the name,
+        # spends three inferences taking samples, then publishes; without a
+        # lock two requests for the same name both pass the check and both
+        # answer 201.  Re-entrant because ``register_face`` holds it while
+        # ``_publish_faces`` takes it again for the change itself.
+        self._faces_lock = threading.RLock()
         # The last few frames that were actually analysed, newest last.
         # Registration averages a face from each of them, so the sample is what
         # the operator was looking at rather than whatever arrives next.
@@ -655,9 +661,20 @@ class StreamSession:
                 )
             embeddings.append(faces[0])
 
-        faces = dict(self.face_store.faces)
-        faces[name] = np.mean(np.stack(embeddings), axis=0)
-        self._publish_faces(faces)
+        # The name check at the top of this method ran before three
+        # inferences, which is long enough for a second request carrying the
+        # same name to pass that same check.  Repeating it here, with the
+        # change itself, inside one critical section is what makes "one name,
+        # one 201" true under concurrency: whichever request arrives second
+        # finds the entry and is refused as a duplicate.
+        with self._faces_lock:
+            if name in self.face_store.faces:
+                raise FaceRequestError(
+                    409, "name-exists", f"{name!r} is already registered"
+                )
+            faces = dict(self.face_store.faces)
+            faces[name] = np.mean(np.stack(embeddings), axis=0)
+            self._publish_faces(faces)
         return {"name": name, "samples": len(embeddings), "known": self.known_face_names()}
 
     def remove_face(self, name) -> dict:
@@ -692,15 +709,21 @@ class StreamSession:
         Saving first means a write failure leaves both the file and the
         in-memory list as they were.  Both halves are whole replacements: the
         encode thread may be walking the old mapping at this very moment.
+
+        The list lock is taken here rather than by every caller so that a
+        change never lands between another change's file write and its mirror
+        swap; ``register_face`` additionally holds it across its own name
+        check, which is why it is re-entrant.
         """
-        previous = self.face_store.faces
-        self.face_store.replace(faces)
-        try:
-            self.face_store.save()
-        except FaceStoreError as exc:
-            self.face_store.replace(previous)
-            raise FaceRequestError(500, "write-failed", str(exc)) from exc
-        self.face_recognizer.replace_known_faces(faces)
+        with self._faces_lock:
+            previous = self.face_store.faces
+            self.face_store.replace(faces)
+            try:
+                self.face_store.save()
+            except FaceStoreError as exc:
+                self.face_store.replace(previous)
+                raise FaceRequestError(500, "write-failed", str(exc)) from exc
+            self.face_recognizer.replace_known_faces(faces)
 
     # -- outputs -------------------------------------------------------------
 

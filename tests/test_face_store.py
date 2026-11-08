@@ -73,6 +73,36 @@ def test_a_file_with_the_wrong_shape_is_treated_as_corrupt(tmp_path, caplog):
     assert any("corrupt" in record.message for record in caplog.records)
 
 
+def test_vectors_of_different_lengths_are_treated_as_corrupt(tmp_path, caplog):
+    """Two widths mean two incompatible registries, not a list of faces.
+
+    One landmarker produced every vector of a list, so they are all the same
+    length.  A file where they are not is a hand edit or a leftover from an
+    older model, and comparing those vectors raises instead of mismatching --
+    inside the analysis tick, which kills the picture pump.  Refusing the file
+    at load time keeps that arithmetic out of the encode thread.
+    """
+    path = tmp_path / "known_faces.json"
+    write_list(path, {"Alice": [1.0, 2.0], "Bob": [1.0, 2.0, 3.0]})
+
+    with caplog.at_level("WARNING", logger="rvm.analysis.face_store"):
+        faces = FaceStore(path).load()
+
+    assert faces == {}
+    assert any("corrupt" in record.message for record in caplog.records)
+
+
+def test_a_list_of_one_width_still_loads(tmp_path):
+    """The width check must not reject a perfectly ordinary list."""
+    path = tmp_path / "known_faces.json"
+    write_list(path, {"Alice": [1.0, 2.0, 3.0], "Bob": [4.0, 5.0, 6.0]})
+
+    faces = FaceStore(path).load()
+
+    assert faces["Alice"].tolist() == [1.0, 2.0, 3.0]
+    assert faces["Bob"].tolist() == [4.0, 5.0, 6.0]
+
+
 # --------------------------------------------------------------------------
 # Saving
 # --------------------------------------------------------------------------

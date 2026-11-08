@@ -344,7 +344,22 @@ class FaceRecognizer(_FaceLandmarkerOwner):
         best_name = None
         best_distance = float("inf")
         for name, registered in known.items():
-            distance = float(np.linalg.norm(embedding - registered))
+            try:
+                distance = float(np.linalg.norm(embedding - registered))
+            except ValueError:
+                # A registered vector of a different width cannot be compared
+                # with this one: NumPy refuses to broadcast, and the exception
+                # would travel out of the analysis tick and kill the picture
+                # pump.  Entries like that come from a file written by another
+                # landmarker (or by hand); an unmatched entry is the honest
+                # reading of "this list cannot describe this face".
+                log.debug(
+                    "skipping %r: width %s does not match this face's %s",
+                    name,
+                    np.shape(registered),
+                    embedding.shape,
+                )
+                continue
             if distance < best_distance:
                 best_distance, best_name = distance, name
         return best_name, best_distance

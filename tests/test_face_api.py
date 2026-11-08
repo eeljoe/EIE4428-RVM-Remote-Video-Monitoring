@@ -11,6 +11,7 @@ store and the HTTP layer all run for real.
 import asyncio
 import json
 import time
+from types import SimpleNamespace
 
 import cv2
 import numpy as np
@@ -87,6 +88,7 @@ def make_session(
     *,
     analysis: bool = True,
     known_faces=None,
+    real_face_recognition: bool = False,
 ) -> StreamSession:
     """A session with "models ready" already true and the models stubbed."""
     path = known_faces if known_faces is not None else tmp_path / "data" / "known_faces.json"
@@ -106,6 +108,11 @@ def make_session(
         session.analysis_enabled = True
         session._models_ready.set()
     stub_analysers(session)
+    if real_face_recognition:
+        # ``stub_analysers`` shadows the method with an instance attribute;
+        # dropping the shadow brings back the real identify path, so the
+        # distance arithmetic against the registry runs for real.
+        del session.face_recognizer.recognize
     return session
 
 
@@ -114,8 +121,13 @@ async def build(tmp_path):
     """Start one app per request, and close everything afterwards."""
     started: list[tuple[TestClient, StreamSession]] = []
 
-    async def factory(*, analysis: bool = True, known_faces=None):
-        session = make_session(tmp_path, analysis=analysis, known_faces=known_faces)
+    async def factory(*, analysis: bool = True, known_faces=None, real_face_recognition=False):
+        session = make_session(
+            tmp_path,
+            analysis=analysis,
+            known_faces=known_faces,
+            real_face_recognition=real_face_recognition,
+        )
         app = create_app(session=session)
         # These tests push pictures one at a time with ``feed``; the background
         # pump would race them for the retained frames and make "the last three
@@ -225,6 +237,39 @@ async def test_a_duplicate_name_is_refused_and_the_file_is_untouched(build, tmp_
     assert_contract(body)
     assert body["reason"] == "name-exists"
     assert list_file(tmp_path).read_bytes() == before
+
+
+async def test_two_registrations_of_one_name_leave_one_entry(build, tmp_path):
+    """Two operators (or two clicks) must not both get a 201 for one name.
+
+    The duplicate check happens before three inferences, which is long enough
+    for a second request with the same name to pass the same check.  The
+    sample is slowed down here only to widen that window to something a test
+    can rely on; the race itself is the product's.
+    """
+    session, client = await build()
+    await feed_three(session)
+
+    def slow(frame):
+        time.sleep(0.05)
+        return [np.array([float(frame[0, 0, 0])])]
+
+    session.face_recognizer.sample_faces = slow
+
+    first, second = await asyncio.gather(
+        client.post("/api/faces/known", json={"name": "Alice"}),
+        client.post("/api/faces/known", json={"name": "Alice"}),
+    )
+
+    assert sorted([first.status, second.status]) == [201, 409]
+    refused = first if first.status == 409 else second
+    body = await refused.json()
+    assert_contract(body)
+    assert body["reason"] == "name-exists"
+    # Hand-computed: frames 10/20/30, one sample each, mean 20.
+    stored = json.loads(list_file(tmp_path).read_text(encoding="utf-8"))
+    assert stored["faces"] == {"Alice": [20.0]}
+    assert (await (await client.get("/api/faces/known")).json()) == {"known": ["Alice"]}
 
 
 @pytest.mark.parametrize(
@@ -452,6 +497,131 @@ async def test_registration_and_analysis_take_the_same_lock(build, tmp_path):
 
     assert (await posting).status == 201
     await analysing
+
+
+# --------------------------------------------------------------------------
+# The registry and the recogniser are one list
+# --------------------------------------------------------------------------
+
+
+def registering_session(tmp_path) -> StreamSession:
+    """A session whose landmarker answers with one fixed sample per frame."""
+    session = make_session(tmp_path)
+    session._recent_frames = [
+        np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8) for _ in range(3)
+    ]
+    # Hand-given: every sample is the same vector, so the average is that
+    # vector -- the arithmetic is pinned exactly, not approximately.
+    session.face_recognizer.sample_faces = lambda frame: [np.full(8, 2.0)]
+    return session
+
+
+def test_registering_updates_the_recogniser_mirror_immediately(tmp_path):
+    """"Register a face and it works at once" is the whole demo.
+
+    ``_publish_faces`` writes the file and updates the store; the recogniser
+    keeps its own copy so that identifying a picture costs no file access.
+    Leaving that copy stale is invisible in the response (201, correct file,
+    correct store) and shows up only when the face just registered is not
+    recognised until the server is restarted.
+    """
+    session = registering_session(tmp_path)
+    try:
+        session.register_face("Ada")
+
+        assert set(session.face_recognizer.known_faces) == {"Ada"}
+        assert np.allclose(session.face_recognizer.known_faces["Ada"], np.full(8, 2.0))
+    finally:
+        session.close()
+
+
+def test_deleting_updates_the_recogniser_mirror_immediately(tmp_path):
+    """A deleted face must stop matching, not linger until a restart."""
+    session = registering_session(tmp_path)
+    try:
+        session.register_face("Ada")
+        session.register_face("Bob")
+
+        session.remove_face("Ada")
+
+        assert set(session.face_recognizer.known_faces) == {"Bob"}
+    finally:
+        session.close()
+
+
+def test_the_store_and_the_recogniser_agree_after_every_change(tmp_path):
+    session = registering_session(tmp_path)
+    try:
+        for name in ("Ada", "Bob", "Carol"):
+            session.register_face(name)
+            assert set(session.face_recognizer.known_faces) == set(
+                session.face_store.faces
+            )
+
+        session.remove_face("Bob")
+
+        assert set(session.face_recognizer.known_faces) == set(session.face_store.faces)
+        assert set(session.face_recognizer.known_faces) == {"Ada", "Carol"}
+    finally:
+        session.close()
+
+
+# --------------------------------------------------------------------------
+# A registry that does not line up with the model
+# --------------------------------------------------------------------------
+
+
+async def test_a_hand_written_list_of_the_wrong_width_does_not_stop_the_stream(
+    build, tmp_path
+):
+    """A stale registry must not take the picture stream down with it.
+
+    ``embedding - registered`` raises ``ValueError`` when the widths differ,
+    and nothing between ``_analyse`` and the pump task catches it: one entry
+    from an older landmarker (or one typed by hand) stops the stream for good.
+    The honest reading is that such an entry cannot match.
+    """
+    registry = list_file(tmp_path)
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    # Eight values per face: real embeddings here are three per landmark.
+    registry.write_text(
+        json.dumps({"version": 1, "faces": {"Bob": [0.75] * 8}}), encoding="utf-8"
+    )
+    session, client = await build(real_face_recognition=True)
+    # The landmarker is stubbed at the library boundary; the registry, the
+    # distance arithmetic, the analysis tick and the pump task all run.
+    session.face_recognizer._model = object()
+    session.face_recognizer._detect = lambda frame: SimpleNamespace(
+        face_landmarks=[[SimpleNamespace(x=0.5, y=0.5, z=0.0)] * 3]
+    )
+    session.fps = 50.0
+
+    stop = asyncio.Event()
+    pump = asyncio.create_task(session.run_forever(stop))
+    try:
+        # Feed pictures until one is through the pipeline: the first analysis
+        # tick is what compares the face with the stale entry, and a tick that
+        # raises takes the task (and the stream) with it.
+        value = 0
+        deadline = time.monotonic() + 5.0
+        while session._frames < 1 and not pump.done() and time.monotonic() < deadline:
+            value += 1
+            session.inject_frame(
+                np.full((HEIGHT, WIDTH, 3), 10 + value, dtype=np.uint8)
+            )
+            await asyncio.sleep(0.02)
+
+        assert not pump.done(), f"the picture pump stopped: {pump.exception()!r}"
+        assert session._frames >= 1, "no picture was encoded"
+        assert (await client.get("/api/status")).status == 200
+        # Nothing matched -- a wrong-width entry cannot be a name for a face.
+        assert session.face_recognizer.known_faces["Bob"].shape == (8,)
+    finally:
+        stop.set()
+        if pump.done():
+            pump.exception()  # reported by the assertion above; do not re-raise
+        else:
+            await asyncio.wait_for(pump, timeout=5.0)
 
 
 # --------------------------------------------------------------------------

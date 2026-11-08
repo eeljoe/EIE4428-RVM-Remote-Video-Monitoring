@@ -258,6 +258,32 @@ def test_a_face_inside_the_threshold_is_reported_with_its_name():
     assert confidence == pytest.approx(0.6)
 
 
+def test_a_registered_vector_of_another_width_is_skipped_rather_than_raised():
+    """A hand-edited list must not take the analysis tick down with it.
+
+    ``embedding - registered`` raises ``ValueError`` when the two widths
+    differ, and nothing between ``recognize`` and the pump task catches it, so
+    one stale entry stops the picture stream for good.  A vector that cannot
+    be compared simply cannot match -- the face is reported as unknown, and the
+    entries that do line up keep working.
+    """
+    recognizer = FaceRecognizer(threshold=0.6)
+    recognizer.replace_known_faces({"stale": np.zeros(5), "joe": np.zeros(4)})
+
+    # Hand-computed: distance norm(4 x 0.2) = 0.4, confidence 1 - 0.4 = 0.6.
+    name, confidence = recognizer._match(np.full(4, 0.2))
+
+    assert name == "joe"
+    assert confidence == pytest.approx(0.6)
+
+
+def test_matching_against_only_wrong_width_vectors_reports_nobody():
+    recognizer = FaceRecognizer(threshold=0.6)
+    recognizer.replace_known_faces({"stale": np.zeros(5)})
+
+    assert recognizer._match(np.zeros(4)) == (None, 0.0)
+
+
 # --------------------------------------------------------------------------
 # Sampling one frame for registration
 # --------------------------------------------------------------------------

@@ -167,6 +167,7 @@ class FaceStore:
             raise ValueError('expected a "faces" object')
 
         faces: dict[str, np.ndarray] = {}
+        width: int | None = None
         for name, values in entries.items():
             if not isinstance(name, str) or not name.strip():
                 raise ValueError(f"invalid name {name!r}")
@@ -175,5 +176,18 @@ class FaceStore:
             vector = np.asarray(values, dtype=np.float64)
             if vector.ndim != 1 or not np.all(np.isfinite(vector)):
                 raise ValueError(f"invalid embedding for {name!r}")
+            # One landmarker produced every vector in a list, so they all have
+            # the same length.  A file that disagrees is not a list with a few
+            # odd entries -- it is two incompatible registries spliced together
+            # (a hand edit, or a file from before the landmarker changed), and
+            # comparing those vectors raises rather than mismatches.  Treating
+            # it as corruption keeps that arithmetic out of the encode thread.
+            if width is None:
+                width = int(vector.shape[0])
+            elif vector.shape[0] != width:
+                raise ValueError(
+                    f"embedding for {name!r} has {vector.shape[0]} values, "
+                    f"the others have {width}"
+                )
             faces[name] = vector
         return faces

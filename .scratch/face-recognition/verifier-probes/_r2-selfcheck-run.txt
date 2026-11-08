@@ -1,0 +1,17 @@
+base=http://127.0.0.1:8123 list_file=C:\Users\joe\AppData\Local\Temp\rvm-r2-selfcheck\known_faces.json
+source=synthetic frames=21
+analysis: enabled=True ready=True face_recognition=True
+list file before: C:\Users\joe\AppData\Local\Temp\rvm-r2-selfcheck\known_faces.json exists=False
+status baseline (idle): n=36 median=3.6ms p95=19.7ms max=27.7ms
+status during burst: n=71 median=4.5ms p95=9.9ms max=27.1ms
+status after burst: n=35 median=4.3ms p95=23.6ms max=27.0ms
+mjpeg baseline: 27 frames in 2.0s (13.5 fps)
+mjpeg during burst: 27 frames in 4.25s (6.4 fps)
+mjpeg after burst: 27 frames in 2.0s (13.5 fps)
+registration burst: 329 requests in 4.09s
+registration outcomes: 409 no-face x329
+GET /api/faces/known -> 200 {"known": []}
+POST empty name -> 400 {"error": "the name must not be empty", "reason": "bad-name"}
+list file after burst: exists=False
+DELETE unknown -> 404 {"error": "'Nobody' is not registered", "reason": "bad-name"}
+snapshot: 200 image/jpeg

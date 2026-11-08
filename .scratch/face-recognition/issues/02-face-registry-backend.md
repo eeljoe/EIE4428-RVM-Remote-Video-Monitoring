@@ -113,6 +113,62 @@
 - **`tests/test_face_api.py` 里 `cv2.ocl.setUseOpenCL(False)`** / 理由：本机 OpenCV 4.14 在**工作线程**里跑 Haar 级联后，进程退出时 `clReleaseDevice` 失败并 abort，整份 pytest 在全部通过后以 0xC0000409 退出；用只调用 `FaceDetector().detect` 的三行探针即可复现，与票内代码无关（`src/rvm/analysis/detect.py` 未改）/ 影响面：测试进程不用 GPU 路径，产品行为不变；这是环境绕行，不是功能的一部分。
 - **名单 JSON 形状 `{"version": 1, "faces": {name: [..]}}`** / 理由：留版本位以便以后迁移；`faces` 包一层避免与未来元数据键冲突 / 影响面：其他票（05 集成）直接读写该文件时要按此形状。
 
+## 实现说明(r2)
+
+返工轮，AC 与判据不变。门报告：`.scratch/face-recognition/reports/02-r1-verifier.md`（REJECTED，[test]1 [impl]2）。本轮只动三处，全部落在原写域内。
+
+### 1. AC → 证据（本轮新增/加固部分）
+
+| AC | 代码 | 测试 |
+|---|---|---|
+| 取样本/注册闭环在「当场见效」这一面：注册后本会话就能认出新脸、删掉就认不出（门 FINDINGS-1） | `session.py:718` `_publish_faces` 内 `self.face_recognizer.replace_known_faces(faces)`（保存成功后才换镜像） | `tests/test_face_api.py:519`、`:538`、`:552`（store 与 recogniser 每次变更后一致） |
+| 名单损坏时告警并按空名单启动、不崩服务（门 FINDINGS-2 的加载面） | `face_store.py:185`-`190`（全体向量等长，否则 `ValueError` → `load` 告警降级） | `tests/test_face_store.py:76`（混维 → 空名单 + `corrupt` 告警）、`:95`（同宽正常载入） |
+| 同上，识别面：合法形状但宽度对不上的条目不得杀死分析 tick | `recognition.py:349`（`_nearest` 跳过宽度失配条目） | `tests/test_recognition.py:261`（坏条目跳过、好条目仍命中）、`:280`（全是坏条目 → 无人命中）、`tests/test_face_api.py:574`（真 pump 任务存活且出帧） |
+| 重名 409 在并发下仍成立（门 FINDINGS-3） | `session.py:204` 名单锁、`:664`-`670` 采样后复检 + 发布同临界区、`:718` `_publish_faces` 自身取锁 | `tests/test_face_api.py:242`（两并发同名 POST → 恰一个 201、一个 409 `name-exists`，文件只有一条） |
+| 全套不回归 | — | 定向 73 passed；全套 560 passed（命令与读数见 `reports/02-r2-worker.md` TESTS 段） |
+
+### 2. 假设
+
+- 「一组向量等长」是名单文件的不变量：一个 landmarker 产一种宽度。等长校验只抓「同一文件里两种宽度」，抓不到「整份文件都是一种过时宽度」——后者由 `_nearest` 的宽度守卫兜住（这是本轮同时改两处的原因，见 §6）。
+- `_nearest` 的守卫按 `ValueError` 捕获，不预判形状：任何让 `embedding - registered` 无法广播的条目都等同于「无法与这张脸比较」。
+- 名单锁只保护「检查 + 发布」这段，不覆盖采样推理：推理已由 `_inference_lock` 串行，名单锁再抱 0.6 s 会把删/改排到一次注册后面。
+- `_publish_faces` 自带锁（`RLock`）而不是要求调用方持锁：删除路径也走它，镜像与文件必须同进同退。
+
+### 3. 我知道没覆盖什么
+
+- 真机层的「同名并发双 201」与「宽度守卫」都没证到：合成场景没有人脸，两个同名 POST 会先撞 `no-face` 409，`_nearest` 也不会被调用。这两条只有进程内证据（变异删除即红）。UNVERIFIED at 真机层。
+- 三线程以上的同名并发没测（只测了两并发）；`asyncio.to_thread` 的线程池上限内应当同样成立，但没有证据。
+- 混维名单的告警只在 `caplog` 与真机启动日志里各看过一次，没测「告警只在加载时出现、不重复刷屏」。
+- 宽度守卫没有区分「宽度不同」与「维度退化」（例如 2 维矩阵）：`_parse` 已拒绝非一维；直接改 `known_faces` 的旁路没有覆盖。
+
+### 4. 复现命令
+
+```
+.venv\Scripts\python.exe -m pytest tests/test_face_store.py tests/test_recognition.py tests/test_face_api.py -q
+.venv\Scripts\python.exe -m pytest
+```
+
+真机新鲜读数（r2 代码，端口 8123/8124，与 r1 的 8099 不同）：
+
+```
+.venv\Scripts\python.exe run_server.py --no-camera --port 8123 --known-faces "$env:TEMP\rvm-r2-selfcheck\known_faces.json"
+.venv\Scripts\python.exe .scratch\face-recognition\verifier-probes\02-face-registry-backend-selfcheck-r2.py --base http://127.0.0.1:8123 --list-file "$env:TEMP\rvm-r2-selfcheck\known_faces.json"
+.venv\Scripts\python.exe run_server.py --no-camera --port 8124 --known-faces "$env:TEMP\rvm-r2-wrongwidth\known_faces.json"
+```
+
+读数落盘：`.scratch/face-recognition/verifier-probes/02-face-registry-backend-selfcheck-r2.md`（r1 的自检文件未改动）。
+
+### 5. 我认为最脆的一处
+
+`_faces_lock` 的粒度与 `_inference_lock` 的组合：注册在 `_inference_lock` 里跑三次采样，再拿 `_faces_lock` 发布；如果以后有人在 `_publish_faces` 里加一步需要 `_inference_lock` 的动作（例如发布前重新取一张脸校验），两把锁就会形成 A→B 与 B→A 的环，表现为注册偶发挂死、`/api/status` 仍在答但画面不再更新。打点：把 `_analyse` 里 `with self._inference_lock:` 之后加一行 `with self._faces_lock: pass`，跑 3000 次注册 + 高频分析，看是否挂死。
+
+### 6. 票面外的决定
+
+- **同时做 `_parse` 等长校验与 `_nearest` 宽度守卫** / 理由：门给的整改是「或」两种；但只有等长校验时，一份「全部 8 维」的手改名单仍会杀死 pump（门 FINDINGS-2 的原始触发样例正是单条目 8 维），而只有守卫时又抓不到「两种宽度混在一份文件里」这种显然的损坏 / 影响面：坏名单在加载时降级为空，或在识别时被跳过，两条路径都不再抛异常。
+- **`_faces_lock` 用 `RLock` 而不是普通 `Lock`** / 理由：`register_face` 需要「复检 + 发布」原子，而 `_publish_faces` 自己也要保护删除路径，嵌套取锁是最短写法 / 影响面：锁的持有者可重入，没有额外语义。
+- **`register_face` 保留顶部那次重名检查** / 理由：让重复名字在推理前就被 409，不必等三次 landmarker 调用 / 影响面：同名并发时两次请求都跑完采样，浪费约 3 次推理，但结果仍是一个 201。
+- **r2 真机自检换端口与临时名单路径，新开 `-r2` 文件** / 理由：8099 被 03 号票的服务器占用（本机实测），且 r1 的读数不能当 r2 证据（产品代码已变）/ 影响面：`data/known_faces.json` 未在仓库内产生，r1 证据文件保持原样。
+
 ## Verdicts
 
 - 2026-11-09 r1 REJECTED 5adcede — 动态证据全面通过，但一处「名单→识别器镜像同步」变异在全套 541 测试下存活（非等价：注册后本会话识别不到新脸），套件对此行为无牙；另发现混维名单文件可致死 pump 任务的降级缺陷。｜报告：.scratch/face-recognition/reports/02-r1-verifier.md｜模型路线：swe-2-high
