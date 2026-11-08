@@ -333,7 +333,18 @@ async def test_a_name_that_could_never_be_deleted_is_refused_before_it_is_stored
 
 
 @pytest.mark.parametrize(
-    "legal", ["Alice Ng", "张小英", "O'Brien", "Zoë", "  Mary Ann  "]
+    "legal",
+    [
+        "Alice Ng",
+        "张小英",
+        "O'Brien",
+        "Zoë",
+        "  Mary Ann  ",
+        "Alice Ng.",
+        "J. Smith",
+        "..a",
+        "a..b",
+    ],
 )
 async def test_a_name_that_can_be_deleted_again_is_still_accepted(build, tmp_path, legal):
     """AS-4 counter-check: the refusal must not eat an ordinary name.
@@ -341,6 +352,12 @@ async def test_a_name_that_can_be_deleted_again_is_still_accepted(build, tmp_pat
     Spaces, Chinese characters, apostrophes, accents and a name typed with stray
     outer spaces are all things an operator really types; each is stored trimmed
     and can then be removed again by the same segment it was stored under.
+
+    Only ``.`` and ``..`` are the unreachable dot segments, so a dotted name --
+    ``Alice Ng.``, ``J. Smith``, even ``..a`` / ``a..b``, which still address one
+    URL segment and can be deleted by it -- has to stay storable.  Refusing
+    anything starting with ``.`` would pass the refusal tests above while
+    quietly rejecting these, so they are pinned here.
     """
     session, client = await build()
     await feed_three(session)
