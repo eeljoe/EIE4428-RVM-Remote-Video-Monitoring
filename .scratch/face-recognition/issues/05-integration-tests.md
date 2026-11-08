@@ -104,3 +104,4 @@
 ## Verdicts
 
 - 2026-11-09 r1 VERIFIED 7671388 — 四步链与失败路径经独立探针与全套件在干净副本重跑皆绿，四个变异全被杀死，收编清单逐项复验属实｜报告：.scratch/face-recognition/reports/05-r1-verifier.md｜模型路线：未标注（派发未带 --model）
+- 2026-11-09 r1 VERIFIED 7671388 — 四步链与失败路径经独立探针与全套件在干净副本重跑皆绿，四个变异全被杀死，收编清单逐项复验属实｜报告：.scratch/face-recognition/reports/05-r1-verifier.md｜模型路线：swe-2-high
