@@ -121,7 +121,7 @@
 
 | AC | 代码 | 测试 |
 |---|---|---|
-| 取样本/注册闭环在「当场见效」这一面：注册后本会话就能认出新脸、删掉就认不出（门 FINDINGS-1） | `session.py:718` `_publish_faces` 内 `self.face_recognizer.replace_known_faces(faces)`（保存成功后才换镜像） | `tests/test_face_api.py:519`、`:538`、`:552`（store 与 recogniser 每次变更后一致） |
+| 取样本/注册闭环在「当场见效」这一面：注册后本会话就能认出新脸、删掉就认不出（门 FINDINGS-1） | `session.py:726` `_publish_faces` 内 `self.face_recognizer.replace_known_faces(faces)`（保存成功后才换镜像） | `tests/test_face_api.py:519`、`:538`、`:552`（store 与 recogniser 每次变更后一致） |
 | 名单损坏时告警并按空名单启动、不崩服务（门 FINDINGS-2 的加载面） | `face_store.py:185`-`190`（全体向量等长，否则 `ValueError` → `load` 告警降级） | `tests/test_face_store.py:76`（混维 → 空名单 + `corrupt` 告警）、`:95`（同宽正常载入） |
 | 同上，识别面：合法形状但宽度对不上的条目不得杀死分析 tick | `recognition.py:349`（`_nearest` 跳过宽度失配条目） | `tests/test_recognition.py:261`（坏条目跳过、好条目仍命中）、`:280`（全是坏条目 → 无人命中）、`tests/test_face_api.py:574`（真 pump 任务存活且出帧） |
 | 重名 409 在并发下仍成立（门 FINDINGS-3） | `session.py:204` 名单锁、`:664`-`670` 采样后复检 + 发布同临界区、`:718` `_publish_faces` 自身取锁 | `tests/test_face_api.py:242`（两并发同名 POST → 恰一个 201、一个 409 `name-exists`，文件只有一条） |
