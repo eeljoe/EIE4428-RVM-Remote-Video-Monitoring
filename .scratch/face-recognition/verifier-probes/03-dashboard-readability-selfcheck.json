@@ -16,7 +16,8 @@
         1440,
         1000
       ],
-      "bytes": 413046
+      "bytes": 412073,
+      "settle_seconds": 35.0
     },
     {
       "path": "03-mobile-390x844.png",
@@ -24,7 +25,8 @@
         390,
         844
       ],
-      "bytes": 117507
+      "bytes": 118449,
+      "settle_seconds": 34.2
     }
   ],
   "desktop": {

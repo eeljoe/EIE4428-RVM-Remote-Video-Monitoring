@@ -1,184 +1,320 @@
+/* RVM operator page.
+ *
+ * Values come from docs/DESIGN-dashboard.md, which was signed off against
+ * .scratch/face-recognition/design/v2/mock-desktop.png and mock-mobile.png.
+ * The short version: 13px labels, 15px values, one line height of 1.5, grey
+ * text at 7.7:1 on a near-black page, and whitespace instead of frames between
+ * groups. The only boxed surfaces are the picture and the inputs.
+ */
+
 :root {
-  --bg: #080c0e;
-  --panel: #10171b;
-  --raised: #182329;
-  --line: #293a40;
-  --text: #eaf3ee;
-  --muted: #8d9d98;
-  --accent: #63dfd0;
-  --alarm: #ff654d;
-  --ok: #83e377;
-  --amber: #f0c36a;
-  --accent-soft: #63dfd012;
-  --alarm-soft: #ff654d12;
-  --control-line: #3a776f;
-  --display: "Bahnschrift", "DIN Alternate", "Franklin Gothic Medium", sans-serif;
-  --mono: "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
+  --bg: #0b0d0e;
+  --panel: #101416;
+  --raised: #191f22;
+  --raised-hover: #212a2e;
+  --line: #252c30;
+  --line-strong: #39444a;
+  --text: #e9eef0;
+  --text-2: #c3ccd0;
+  --muted: #9aa5aa;
+  --placeholder: #7d888d;
+  --accent: #5fd3c6;
+  --accent-hover: #78ded2;
+  --accent-soft: #5fd3c61f;
+  --on-accent: #072521;
+  --ok: #6ecb8f;
+  --warn: #e3b45c;
+  --alarm: #f0715a;
+  --alarm-soft: #f0715a1f;
+  --fs-label: 13px;
+  --fs-body: 15px;
+  --fs-title: 18px;
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, "SF Mono", monospace;
+  --radius: 4px;
 }
 
 * { box-sizing: border-box; }
+:root { color-scheme: dark; }
 
 body {
   margin: 0;
-  background: radial-gradient(circle at 12% -10%, #63dfd014, transparent 34rem), repeating-linear-gradient(0deg, #ffffff03 0 1px, transparent 1px 32px), var(--bg);
+  background: var(--bg);
   color: var(--text);
-  font: 14px/1.5 var(--display);
-  letter-spacing: .02em;
+  font: var(--fs-body)/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
 }
+
+/* ---- header ------------------------------------------------------------- */
 
 .bar {
-  display: flex; align-items: center; justify-content: space-between; gap: 18px;
-  padding: 14px 22px; border-bottom: 1px solid var(--line); border-top: 2px solid var(--accent);
-  background: #0b1114f2;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: 56px; padding: 0 24px; border-bottom: 1px solid var(--line);
 }
-.bar h1 { display: flex; align-items: baseline; gap: 14px; margin: 0; }
-.wordmark { color: var(--accent); font-size: 27px; font-weight: 700; letter-spacing: .16em; line-height: 1; }
-.bar .sub { color: var(--muted); font: 500 10px/1.3 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
-.course { color: var(--text); }
-.bar-right { display: flex; align-items: center; gap: 18px; }
-.unit-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; }
-
-.status-pill {
-  display: flex; align-items: center; gap: 8px; padding: 6px 9px;
-  border: 1px solid var(--line); color: var(--text); font: 10px var(--mono); letter-spacing: .09em; text-transform: uppercase;
+.brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.mark { color: var(--accent); font: 700 var(--fs-title)/1.5 var(--sans); letter-spacing: .14em; }
+.name {
+  min-width: 0; color: var(--text-2); font-size: 14px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.status-pill::before { content: "LINK"; color: var(--muted); }
-.dot { width: 7px; height: 7px; border-radius: 1px; background: var(--muted); }
-.dot.live { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
-.dot.down { background: var(--alarm); box-shadow: 0 0 10px var(--alarm); }
+.course { flex: none; color: var(--muted); font: 400 var(--fs-label)/1.5 var(--mono); letter-spacing: .06em; }
 
-.layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 20px; padding: 22px; align-items: start; max-width: 1700px; margin: auto; }
-.viewer { min-width: 0; animation: reveal .35s ease-out both; }
+.link {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  font: 600 var(--fs-label)/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.dot.live { background: var(--ok); }
+.dot.down { background: var(--alarm); }
 
+/* ---- shell -------------------------------------------------------------- */
+
+.layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 20px 28px; align-items: start;
+  max-width: 1680px; margin: 0 auto; padding: 20px 24px 24px;
+}
+.viewer { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+
+/* ---- picture ------------------------------------------------------------ */
+
+/* The bezel is a ring outside the box, so the frame inside is exactly the
+ * stage and the overlays anchored in percentages stay glued to the stream. */
 .stage {
-  position: relative; background: #020404; border: 1px solid #3a5158; border-radius: 3px;
-  overflow: hidden; aspect-ratio: 4 / 3; isolation: isolate; box-shadow: 0 22px 70px #0009, 0 0 0 4px #63dfd008;
+  position: relative; aspect-ratio: 4 / 3; overflow: hidden;
+  background: #000; border-radius: var(--radius);
+  box-shadow: 0 0 0 1px #2b3439, 0 20px 48px #00000073;
 }
-.stage::before {
-  content: attr(data-channel); position: absolute; top: 14px; left: 14px; z-index: 2;
-  padding: 4px 7px; background: #000a; border-left: 2px solid var(--accent); color: #eafffa;
-  font: 10px var(--mono); letter-spacing: .12em; pointer-events: none;
+.stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+/* Monitor furniture: where the picture comes from on the left, the clock on the
+ * right, both on a scrim so they stay legible over any frame. */
+.osd {
+  position: absolute; top: 10px; z-index: 3;
+  padding: 3px 8px; border-radius: 3px; background: #000000a8;
+  color: #dbe6e4; font: 600 12px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase;
 }
-.stage::after { content: ""; position: absolute; inset: 9px; z-index: 2; border: 1px solid #63dfd02b; pointer-events: none; }
+.osd.left { left: 10px; }
+.osd.right { right: 10px; font-variant-numeric: tabular-nums; }
 
-.stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
-
-.alarm {
-  position: absolute; inset: 0; z-index: 5; display: none; align-items: center; justify-content: center;
-  background: repeating-linear-gradient(135deg, var(--alarm-soft) 0 14px, transparent 14px 28px);
-  border: 3px solid var(--alarm); color: #ff9a86; font: 700 20px var(--mono);
-  letter-spacing: .2em; text-align: center; text-shadow: 0 2px 14px #000; pointer-events: none;
-}
-.alarm.on { display: flex; animation: pulse 1.1s ease-in-out infinite; }
-
-@keyframes pulse { 0%,100% { border-color: var(--alarm); } 50% { border-color: #ff9a86; } }
-@keyframes reveal { from { opacity: 0; } to { opacity: 1; } }
-
-.overlay {
-  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
-  display: flex; justify-content: space-between; gap: 12px; padding: 26px 14px 12px;
-  background: linear-gradient(transparent, #000d); font: 10px var(--mono); color: #d8e9e3; text-transform: uppercase;
+/* The current view is carried by the pressed side of the toggle; this mirror is
+ * only for assistive tech, so the state is announced without a second label. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
 }
 
-.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin-top: 14px; }
-.control-cluster { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
-.controls label { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; display: flex; align-items: center; gap: 7px; }
-
-select, button {
-  background: var(--raised); color: var(--text); border: 1px solid var(--line); border-radius: 2px;
-  padding: 7px 11px; font: 11px var(--mono); cursor: pointer; color-scheme: dark;
+/* The zone the operator dragged out, drawn in percentages of the picture, and
+ * the box around whatever is moving inside it. */
+.roi {
+  position: absolute; z-index: 2; pointer-events: none;
+  border: 1px dashed #5fd3c6cc; border-radius: 2px; background: #5fd3c60f;
 }
-button { text-transform: uppercase; letter-spacing: .04em; transition: border-color .16s, color .16s, transform .16s; }
-button:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
-button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
-#record.active { border-color: var(--alarm); color: var(--alarm); background: var(--alarm-soft); }
-#apply { border-color: var(--control-line); }
-select:focus-visible, button:focus-visible, a:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 3px;
-}
-
-.panel {
-  background: linear-gradient(145deg, var(--panel), #0b1114); border: 1px solid var(--line);
-  border-radius: 3px; padding: 14px 16px; counter-reset: section; box-shadow: 0 16px 40px #0005; animation: reveal .35s .08s ease-out both;
-}
-.panel h2 {
-  display: flex; align-items: center; gap: 8px; margin: 18px 0 10px;
-  font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--muted);
-}
-.panel h2::before { counter-increment: section; content: "0" counter(section); color: var(--accent); }
-.panel h2:first-child { margin-top: 0; }
-
-.metrics { margin: 0; font-size: 13px; }
-.metrics > div {
-  display: flex; justify-content: space-between; gap: 10px;
-  padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,.05);
-}
-.metrics > div:last-child { border-bottom: none; }
-.metrics dt { color: var(--muted); }
-.metrics dd { margin: 0; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
-#m-res, #m-fps, #m-bitrate { color: var(--accent); }
-#m-rec { color: var(--amber); }
-
-#spark { width: 100%; height: 60px; display: block; background: repeating-linear-gradient(0deg, transparent 0 19px, #ffffff08 19px 20px); }
-
-/* The detection zone the operator drew, and the box around whatever is moving
- * inside it. Both are dashed outlines so the live picture underneath stays
- * readable. */
-.roi, .bbox {
-  position: absolute; z-index: 4; border: 1px dashed var(--accent);
-  background: var(--accent-soft); box-shadow: 0 0 0 1px #0008; pointer-events: none;
-}
-.bbox { border-color: var(--alarm); background: #ff654d18; }
-
-/* Object tracking: an ID tag on each mover plus a fading dotted trail of its
- * recent positions.  Same percentage anchoring as the zone and motion boxes. */
-.tracks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.bbox { position: absolute; z-index: 2; pointer-events: none; border: 2px solid var(--alarm); background: #f0715a1a; }
+.tracks { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
 .track-dot {
-  position: absolute; width: 4px; height: 4px; margin: -2px 0 0 -2px;
-  border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px #000;
+  position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px;
+  border-radius: 50%; background: var(--accent);
 }
 .track-tag {
-  position: absolute; transform: translate(-50%, -140%); padding: 1px 5px;
-  border: 1px solid var(--control-line); background: #000b;
-  color: var(--accent); font: 700 9px var(--mono); letter-spacing: .08em;
+  position: absolute; transform: translate(-50%, -150%); padding: 1px 6px; border-radius: 2px;
+  background: #000000b8; color: var(--accent); font: 700 12px/1.5 var(--mono);
+}
+.alarm {
+  position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center;
+  border: 3px solid var(--alarm); background: #f0715a14;
+  color: #ffb3a6; font: 700 20px/1.5 var(--mono); letter-spacing: .18em; text-align: center;
+}
+.alarm.on { display: flex; }
+
+/* ---- controls ----------------------------------------------------------- */
+
+.controls { display: flex; flex-direction: column; gap: 20px; }
+.controls .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 40px; }
+.field { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.field > label { color: var(--muted); font-size: var(--fs-label); line-height: 1.5; white-space: nowrap; }
+
+select, button {
+  font: 500 var(--fs-body)/1.5 var(--sans);
+  color: var(--text); background: var(--raised);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  padding: 8px 12px; min-height: 40px;
+}
+select {
+  appearance: none; color-scheme: dark; padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa5aa' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+}
+button { cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
+button:hover { background: var(--raised-hover); border-color: #4d5a61; }
+button:active { transform: translateY(1px); }
+select:hover { background-color: var(--raised-hover); }
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
 }
 
-.hint { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; color: var(--muted); font: 11px var(--mono); }
-.hint-key { flex: none; padding: 3px 6px; border: 1px solid var(--control-line); color: var(--accent); font-size: 9px; letter-spacing: .08em; }
+/* Which picture you are looking at: the pressed side is a solid accent fill,
+ * so the state reads without a second label elsewhere on the page. */
+.seg { padding-inline: 16px; }
+.seg.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.seg.active:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+#record.active { border-color: var(--alarm); color: var(--alarm); background: var(--alarm-soft); }
 
-.clips { list-style: none; margin: 0; padding: 0; font-size: 12px; }
-.clips li { border-bottom: 1px dashed rgba(255, 255, 255, .06); }
-.clips li:last-child { border-bottom: none; }
-.clips li.muted { color: var(--muted); padding: 6px 0; }
-.clips a {
-  display: flex; gap: 10px; align-items: center;
-  padding: 6px 0; color: var(--text); text-decoration: none;
+.hint { margin: 0; color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+
+/* ---- telemetry rail ----------------------------------------------------- */
+
+.rail { display: flex; flex-direction: column; min-width: 0; }
+.section { min-width: 0; }
+.section + .section { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+.section h2 {
+  display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; color: var(--text-2);
+  font: 600 var(--fs-label)/1.5 var(--sans); letter-spacing: .08em; text-transform: uppercase;
 }
-.clips a:hover { color: var(--accent); }
-.clips img {
-  width: 64px; height: 48px; object-fit: cover;
-  border-radius: 4px; border: 1px solid var(--line); background: #000;
+/* A constant that belongs to the section, not a live number: it rides on the
+ * heading instead of taking a row of its own. */
+.section h2 .meta {
+  margin-left: auto; text-transform: none; letter-spacing: .02em;
+  font: 400 var(--fs-label)/1.5 var(--mono); color: var(--muted); white-space: nowrap;
 }
-.clips small { color: var(--muted); }
+
+.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; margin: 0; }
+/* Fixed label column, value immediately after it: the 10px label-to-value gap
+ * is narrower than the 32px gutter between the columns, so a readout always
+ * binds to its own label and never reads as the next one's. */
+.readouts > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; padding: 3px 0; }
+.readouts .wide { grid-column: 1 / -1; }
+.readouts dt {
+  flex: 0 0 108px; color: var(--muted); font-size: var(--fs-label); line-height: 1.5;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.readouts dd {
+  margin: 0; min-width: 0; color: var(--text);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 var(--fs-body)/1.5 var(--mono); font-variant-numeric: tabular-nums;
+}
+/* A value that has not arrived yet: one hyphen, not an em dash, not "n/a". */
+.readouts dd.pending { color: var(--muted); }
+#m-rec { color: var(--muted); }
+#m-identities { color: var(--text); }
+
+#spark { display: block; width: 100%; height: 30px; margin-top: 4px; }
+
+/* Magnitude tag for the trace. The canvas normalises to the maximum of its own
+ * window, so the top of the plot is a real number worth printing; the tag rides
+ * the readout row it belongs to instead of taking a line or a legend box.
+ * Same mono as the values, one step quieter: 12px against their 15px. */
+.peak {
+  margin-left: auto; flex: none; white-space: nowrap;
+  color: var(--muted); font: 400 12px/1.5 var(--mono);
+  letter-spacing: .02em; font-variant-numeric: tabular-nums;
+}
+
+/* ---- face registry ------------------------------------------------------ */
+
+.reg-label { display: block; margin: 0 0 8px; color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+.reg-row { display: flex; gap: 10px; }
+.reg-row input {
+  flex: 1 1 auto; min-width: 0; padding: 8px 12px; min-height: 40px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  font: 400 var(--fs-body)/1.5 var(--sans);
+}
+.reg-row input::placeholder { color: var(--placeholder); opacity: 1; }
+
+button.primary {
+  flex: none; padding: 8px 14px; font-size: var(--fs-label); font-weight: 700; letter-spacing: .04em;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+button.primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* One line, one outcome. The row keeps its height when empty, so a message
+ * appearing does not shove the list down. */
+.status {
+  display: flex; align-items: center; gap: 8px; min-height: 20px; margin: 8px 0 0;
+  color: var(--muted); font-size: var(--fs-label); line-height: 1.5;
+}
+.status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.status:empty::before { opacity: 0; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--alarm); }
+.status.warn { color: var(--warn); }
+
+.names { list-style: none; margin: 10px 0 0; padding: 0; }
+.names li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.names li + li { border-top: 1px solid var(--line); }
+.names .who { min-width: 0; font-size: var(--fs-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.names .empty { color: var(--muted); font-size: var(--fs-label); padding: 8px 0; }
+
+.x {
+  flex: none; width: 32px; height: 32px; min-height: 0; padding: 0;
+  display: grid; place-items: center;
+  background: transparent; border-color: var(--line); color: var(--muted);
+  font: 400 16px/1.5 var(--mono);
+}
+.x:hover { background: var(--alarm-soft); border-color: var(--alarm); color: var(--alarm); }
+
+/* ---- clips -------------------------------------------------------------- */
+
+.clips { list-style: none; margin: 0; padding: 0; }
+.clips li + li { border-top: 1px solid var(--line); }
+.clips a { display: flex; align-items: center; gap: 12px; padding: 6px 0; color: var(--text); text-decoration: none; }
+.clips a:hover .clip-name { color: var(--accent); }
+.clips img { flex: none; width: 56px; height: 42px; object-fit: cover; border-radius: 3px; background: #000; }
+.clips .clip-meta { display: flex; flex-direction: column; min-width: 0; }
+.clips .clip-name {
+  font: 500 var(--fs-body)/1.5 var(--mono); font-variant-numeric: tabular-nums;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.clips .clip-sub { color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+.clips .empty { color: var(--muted); font-size: var(--fs-label); padding: 8px 0; }
+
+/* ---- wide: the rail scrolls on its own ---------------------------------- */
+
+/* 102 = header 56 + its 1px border + layout padding 20 top and 24 bottom + 1.
+ * A tall rail scrolls inside the column instead of stretching the page past the
+ * projector's 1000px. */
+@media (min-width: 901px) {
+  .rail { max-height: calc(100vh - 102px); overflow-y: auto; }
+}
+
+/* ---- narrow: one column, picture then controls then registry then numbers -- */
 
 @media (max-width: 900px) {
-  .layout { grid-template-columns: 1fr; padding: 16px; }
-  .unit-label { display: none; }
+  .layout { grid-template-columns: 1fr; row-gap: 16px; padding: 16px; }
+  /* The rail and the viewer stop being boxes so their children can be ordered
+   * into one column without moving a single line of markup. */
+  .viewer, .rail { display: contents; }
+  .stage { order: 1; }
+  .controls { order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { order: 3; }
+  .section { order: 5; }
+  /* Declared after .section on purpose: naming a face must not require
+   * scrolling past the telemetry. */
+  .registry { order: 4; }
+  .section + .section { margin-top: 8px; padding-top: 16px; }
+
+  .controls .row { display: contents; }
+  .field {
+    grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center; gap: 10px;
+  }
+  .field select { width: 100%; min-width: 0; }
+  .field.views { grid-template-columns: 1fr 1fr; }
+  .field.actions { grid-template-columns: 1fr 1fr; }
+  .field.actions button:last-child { grid-column: 1 / -1; }
+  .seg { width: 100%; }
+  .names .x { width: 40px; height: 40px; }
 }
 
 @media (max-width: 560px) {
-  .bar { align-items: flex-start; padding: 12px 14px; }
-  .bar h1 { gap: 9px; }
-  .bar .sub { max-width: 150px; }
-  .wordmark { font-size: 23px; }
-  .layout { padding: 10px; gap: 12px; }
-  .control-cluster { width: 100%; }
-  select, button { min-height: 40px; }
-  .controls label { flex: 1 1 160px; justify-content: space-between; }
-  .overlay { font-size: 8px; padding: 22px 10px 9px; }
-  .alarm { font-size: 14px; }
-  .hint { align-items: flex-start; }
+  :root { --fs-label: 14px; }
+  .bar { height: 52px; padding: 0 16px; gap: 12px; }
+  .name { display: none; }
+  select, button { font-size: 15px; }
+  .readouts { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -187,5 +323,4 @@ select:focus-visible, button:focus-visible, a:focus-visible {
     animation-iteration-count: 1 !important;
     transition-duration: .01ms !important;
   }
-  .alarm.on { animation: none; }
 }

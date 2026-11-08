@@ -4,111 +4,130 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>RVM &middot; Remote Video Monitor</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23080c0e'/%3E%3Cpath d='M7 8h18v16H7z' fill='none' stroke='%2363dfd0' stroke-width='2'/%3E%3Cpath d='M11 12h5v8h-5z' fill='%2363dfd0'/%3E%3C/svg%3E" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0d0e'/%3E%3Cpath d='M7 8h18v16H7z' fill='none' stroke='%235fd3c6' stroke-width='2'/%3E%3Cpath d='M11 12h5v8h-5z' fill='%235fd3c6'/%3E%3C/svg%3E" />
 <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
 <header class="bar">
-  <h1><span class="wordmark">RVM</span><span class="sub">Remote Video Monitor <span class="course">EIE4428</span></span></h1>
-  <div class="bar-right">
-    <span class="unit-label">FIELD MONITOR / 01</span>
-    <div class="status-pill" id="conn" role="status" aria-live="polite"><span class="dot"></span><span id="conn-text">connecting</span></div>
+  <div class="brand">
+    <span class="mark">RVM</span>
+    <span class="name">Remote Video Monitor</span>
+    <span class="course">EIE4428</span>
   </div>
+  <div class="link" id="conn" role="status" aria-live="polite"><span class="dot"></span><span id="conn-text">connecting</span></div>
 </header>
 
 <main class="layout">
   <section class="viewer" aria-label="Live monitor and controls">
-    <div class="stage" id="stage" data-channel="CAM 01">
+    <div class="stage" id="stage">
       <img id="stream" src="/api/stream.mjpg" alt="Live camera feed" aria-describedby="zone-help" />
       <div class="roi" id="roi" hidden></div>
       <div class="bbox" id="bbox" hidden></div>
       <div class="tracks" id="tracks" aria-hidden="true"></div>
       <div class="alarm" id="alarm" role="alert" aria-live="assertive">MOTION DETECTED</div>
-      <div class="overlay" id="overlay-bottom">
-        <span id="src-label">source</span>
-        <span id="view-label">camera</span>
-        <span id="time-label">--:--:--</span>
-      </div>
+      <span class="osd left" id="src-label">source</span>
+      <span class="osd right" id="time-label">--:--:--</span>
     </div>
 
     <div class="controls">
-      <div class="control-cluster" role="group" aria-label="Stream configuration">
-      <label>Target bitrate
-        <select id="bitrate">
-          <option value="200000">200 kbps</option>
-          <option value="600000">600 kbps</option>
-          <option value="1200000" selected>1.2 Mbps</option>
-          <option value="3000000">3 Mbps</option>
-          <option value="6000000">6 Mbps</option>
-        </select>
-      </label>
-      <button id="apply">Apply</button>
-      <label>Motion sensitivity
-        <select id="sensitivity">
-          <option value="low">low</option>
-          <option value="medium" selected>medium</option>
-          <option value="high">high</option>
-        </select>
-      </label>
-      <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
+      <div class="row">
+        <div class="field">
+          <label for="bitrate">Target bitrate</label>
+          <select id="bitrate">
+            <option value="200000">200 kbps</option>
+            <option value="600000">600 kbps</option>
+            <option value="1200000" selected>1.2 Mbps</option>
+            <option value="3000000">3 Mbps</option>
+            <option value="6000000">6 Mbps</option>
+          </select>
+          <button id="apply">Apply</button>
+        </div>
+        <div class="field">
+          <label for="sensitivity">Motion sensitivity</label>
+          <select id="sensitivity">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+          </select>
+          <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
+        </div>
       </div>
-      <div class="control-cluster" role="group" aria-label="Picture views">
-      <button id="view-source" class="toggle active">Camera</button>
-      <button id="view-decoded" class="toggle">Decoded (RVM1)</button>
-      </div>
-      <div class="control-cluster" role="group" aria-label="Capture and export">
-      <button id="snapshot">Save snapshot</button>
-      <button id="record">Start recording</button>
-      <button id="metrics">Export metrics</button>
+      <div class="row">
+        <div class="field views" role="group" aria-label="Picture source">
+          <span class="sr-only" id="view-label" aria-live="polite">camera</span>
+          <button id="view-source" class="seg active" aria-pressed="true">Camera</button>
+          <button id="view-decoded" class="seg" aria-pressed="false">Decoded (RVM1)</button>
+        </div>
+        <div class="field actions" role="group" aria-label="Capture and export">
+          <button id="snapshot">Save snapshot</button>
+          <button id="record">Start recording</button>
+          <button id="metrics">Export metrics</button>
+        </div>
       </div>
     </div>
-    <p class="hint" id="zone-help">
-      <span class="hint-key">DRAG TO ZONE</span>
-      <span>Watch only that area — movement elsewhere stops raising the alarm.</span>
-    </p>
+
+    <p class="hint" id="zone-help">Drag on the picture to watch only that area.</p>
   </section>
 
-  <aside class="panel" aria-label="Live telemetry and recorded clips">
-    <h2>Stream</h2>
-    <dl class="metrics">
-      <div><dt>Resolution</dt><dd id="m-res">&mdash;</dd></div>
-      <div><dt>Frame rate</dt><dd id="m-fps">&mdash;</dd></div>
-      <div><dt>Video bitrate</dt><dd id="m-bitrate">&mdash;</dd></div>
-      <div><dt>QP</dt><dd id="m-qp">&mdash;</dd></div>
-      <div><dt>PSNR</dt><dd id="m-psnr">&mdash;</dd></div>
-      <div><dt>Codec</dt><dd id="m-codec">RVM1 &middot; H.264-style hybrid</dd></div>
-    </dl>
+  <div class="rail">
+    <section class="section">
+      <h2>Stream<span class="meta" id="m-codec">RVM1 &middot; H.264-style hybrid</span></h2>
+      <dl class="readouts">
+        <div><dt>Resolution</dt><dd id="m-res" class="pending">-</dd></div>
+        <div><dt>Frame rate</dt><dd id="m-fps" class="pending">-</dd></div>
+        <div><dt>QP</dt><dd id="m-qp" class="pending">-</dd></div>
+        <div><dt>PSNR</dt><dd id="m-psnr" class="pending">-</dd></div>
+        <div class="wide"><dt>Video bitrate</dt><dd id="m-bitrate" class="pending">-</dd><span class="peak" id="m-peak">peak -</span></div>
+      </dl>
+      <canvas id="spark" width="260" height="30" role="img" aria-label="Recent video bitrate history"></canvas>
+    </section>
 
-    <h2>Transport</h2>
-    <dl class="metrics">
-      <div><dt>Packets sent</dt><dd id="m-pkts">&mdash;</dd></div>
-      <div><dt>Pictures</dt><dd id="m-pics">&mdash;</dd></div>
-      <div><dt>Packet loss</dt><dd id="m-loss">&mdash;</dd></div>
-      <div><dt>Jitter</dt><dd id="m-jitter">&mdash;</dd></div>
-      <div><dt>Viewers</dt><dd id="m-clients">&mdash;</dd></div>
-    </dl>
+    <section class="section">
+      <h2>Transport</h2>
+      <dl class="readouts">
+        <div><dt>Packets sent</dt><dd id="m-pkts" class="pending">-</dd></div>
+        <div><dt>Pictures</dt><dd id="m-pics" class="pending">-</dd></div>
+        <div><dt>Packet loss</dt><dd id="m-loss" class="pending">-</dd></div>
+        <div><dt>Jitter</dt><dd id="m-jitter" class="pending">-</dd></div>
+        <div><dt>Viewers</dt><dd id="m-clients" class="pending">-</dd></div>
+        <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
+      </dl>
+    </section>
 
-    <h2>Analysis</h2>
-    <dl class="metrics">
-      <div><dt>Motion</dt><dd id="m-motion">&mdash;</dd></div>
-      <div><dt>Detection zone</dt><dd id="m-roi">&mdash;</dd></div>
-      <div><dt>Faces</dt><dd id="m-faces">&mdash;</dd></div>
-      <div><dt>Tracked objects</dt><dd id="m-tracks">&mdash;</dd></div>
-      <div><dt>Gestures</dt><dd id="m-gestures">&mdash;</dd></div>
-      <div><dt>Expressions</dt><dd id="m-emotions">&mdash;</dd></div>
-      <div><dt>Face IDs</dt><dd id="m-identities">&mdash;</dd></div>
-      <div><dt>Audio events</dt><dd id="m-audio">&mdash;</dd></div>
-      <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
-    </dl>
+    <section class="section">
+      <h2>Analysis</h2>
+      <dl class="readouts">
+        <div><dt>Motion</dt><dd id="m-motion" class="pending">-</dd></div>
+        <div><dt>Faces</dt><dd id="m-faces" class="pending">-</dd></div>
+        <div><dt>Tracked objects</dt><dd id="m-tracks" class="pending">-</dd></div>
+        <div><dt>Gestures</dt><dd id="m-gestures" class="pending">-</dd></div>
+        <div><dt>Expressions</dt><dd id="m-emotions" class="pending">-</dd></div>
+        <div><dt>Audio events</dt><dd id="m-audio" class="pending">-</dd></div>
+        <div class="wide"><dt>Detection zone</dt><dd id="m-roi" class="pending">-</dd></div>
+        <div class="wide"><dt>Face IDs</dt><dd id="m-identities" class="pending">-</dd></div>
+      </dl>
+    </section>
 
-    <h2>Bitrate</h2>
-    <canvas id="spark" width="260" height="60" role="img" aria-label="Recent video bitrate history"></canvas>
+    <section class="section registry" id="face-registry">
+      <h2>Face registry</h2>
+      <label class="reg-label" for="face-name">Name for the face in frame</label>
+      <div class="reg-row">
+        <input id="face-name" name="face-name" type="text" placeholder="e.g. Alice Ng" autocomplete="off" spellcheck="false" />
+        <button type="button" class="primary" id="face-remember">REMEMBER FACE</button>
+      </div>
+      <p class="status" id="face-status" role="status" aria-live="polite"></p>
+      <ul class="names" id="face-list">
+        <li class="empty">No names saved yet</li>
+      </ul>
+    </section>
 
-    <h2>Clips</h2>
-    <ul class="clips" id="clips">
-      <li class="muted">No recording yet.</li>
-    </ul>
-  </aside>
+    <section class="section">
+      <h2>Clips</h2>
+      <ul class="clips" id="clips">
+        <li class="empty">No recording yet</li>
+      </ul>
+    </section>
+  </div>
 </main>
 
 <script src="/static/app.js"></script>

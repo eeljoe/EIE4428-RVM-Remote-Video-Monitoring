@@ -39,11 +39,15 @@ Start the server first::
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import http.server
 import json
 import re
 import subprocess
 import sys
+import threading
+import time
 import uuid
 from pathlib import Path
 from urllib.request import urlopen
@@ -254,11 +258,44 @@ WRAPPER = """<!DOCTYPE html>
   html, body {{ margin: 0; background: #000; overflow: hidden; }}
   iframe {{ display: block; width: {width}px; height: {height}px; border: 0; }}
   #report {{ position: fixed; left: -4000px; top: 0; margin: 0; }}
+  img.slow {{ position: fixed; left: -20px; top: -20px; width: 1px; height: 1px; }}
 </style>
 <iframe id="page" src="{src}"></iframe>
 <pre id="report"></pre>
+{slow}
 <script>{measure}</script>
 """
+
+# Chrome takes its screenshot when the top-level load finishes, and the framed
+# page never finishes loading (a multipart stream does not end). Without
+# something slow and *finite* in the wrapper, the shot lands about 2.5s in, which
+# is one or two telemetry frames -- not enough for the bitrate trace to have any
+# shape. This 1x1 pixel is served after SLOW_DELAY seconds and parked outside the
+# crop, so the capture waits for the history to fill without anything being added
+# to the picture.
+SLOW_PORT = 8111
+SLOW_DELAY = 32.0
+SLOW_PIXEL = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg=="
+)
+
+
+def start_slow_server() -> http.server.ThreadingHTTPServer:
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):  # noqa: N802 - the name is http.server's
+            time.sleep(SLOW_DELAY)
+            self.send_response(200)
+            self.send_header("Content-Type", "image/png")
+            self.send_header("Content-Length", str(len(SLOW_PIXEL)))
+            self.end_headers()
+            self.wfile.write(SLOW_PIXEL)
+
+        def log_message(self, *args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", SLOW_PORT), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server
 
 
 def prepare_copy() -> tuple[Path, dict]:
@@ -320,25 +357,30 @@ def chrome(*arguments: str, timeout: int = 180) -> subprocess.CompletedProcess:
     )
 
 
-def wrapper(width: int, height: int, source: str, measure_script: str = "") -> Path:
-    path = HERE / f"_wrap-{width}x{height}-{abs(hash(source)) % 100000}.html"
-    page = path.with_suffix(".html")
+def wrapper(
+    width: int, height: int, source: str, measure_script: str = "", slow: bool = False
+) -> Path:
+    page = HERE / f"_wrap-{width}x{height}-{abs(hash((source, slow))) % 100000}.html"
+    pixel = (
+        f'<img class="slow" alt="" src="http://127.0.0.1:{SLOW_PORT}/slow.png?{uuid.uuid4().hex}">'
+        if slow
+        else ""
+    )
     page.write_text(
-        WRAPPER.format(width=width, height=height, src=source, measure=measure_script),
+        WRAPPER.format(
+            width=width, height=height, src=source, measure=measure_script, slow=pixel
+        ),
         encoding="utf-8",
     )
     return page
 
 
-def shot_wrapper(width: int, height: int) -> Path:
-    return wrapper(width, height, BASE + "/")
-
-
 def shoot(width: int, height: int, name: str) -> dict:
-    page = shot_wrapper(width, height)
+    page = wrapper(width, height, BASE + "/", slow=True)
     png = HERE / name
     if png.exists():
         png.unlink()
+    started = time.time()
     chrome(f"--window-size={width + 40},{height + 120}", f"--screenshot={png}", page.as_uri())
     if not png.exists():
         raise SystemExit(f"chrome produced no {name}")
@@ -346,7 +388,12 @@ def shoot(width: int, height: int, name: str) -> dict:
 
     cropped = Image.open(png).crop((0, 0, width, height))
     cropped.save(png)
-    return {"path": name, "size": [cropped.width, cropped.height], "bytes": png.stat().st_size}
+    return {
+        "path": name,
+        "size": [cropped.width, cropped.height],
+        "bytes": png.stat().st_size,
+        "settle_seconds": round(time.time() - started, 1),
+    }
 
 
 def measure(width: int, height: int, index: Path, override: str = "") -> dict:
@@ -376,18 +423,22 @@ def main() -> int:
     with urlopen(BASE + "/", timeout=10) as response:
         assert response.status == 200, response.status
     index, provenance = prepare_copy()
-    report = {
-        "base": BASE,
-        "provenance": provenance,
-        "shots": [],
-        "desktop": measure(1440, 1000, index),
-        "mobile": measure(390, 844, index),
-        "mobile_two_column": measure(
-            390, 844, index, override=".readouts{grid-template-columns:1fr 1fr !important}"
-        ),
-    }
-    for width, height, name in VIEWPORTS:
-        report["shots"].append(shoot(width, height, name))
+    slow = start_slow_server()
+    try:
+        report = {
+            "base": BASE,
+            "provenance": provenance,
+            "shots": [],
+            "desktop": measure(1440, 1000, index),
+            "mobile": measure(390, 844, index),
+            "mobile_two_column": measure(
+                390, 844, index, override=".readouts{grid-template-columns:1fr 1fr !important}"
+            ),
+        }
+        for width, height, name in VIEWPORTS:
+            report["shots"].append(shoot(width, height, name))
+    finally:
+        slow.shutdown()
     out = HERE / "03-dashboard-readability-selfcheck.json"
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
     print(json.dumps(report, indent=2))

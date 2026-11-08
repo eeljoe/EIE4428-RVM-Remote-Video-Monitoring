@@ -12,9 +12,13 @@ const $ = (id) => document.getElementById(id);
 
 const history = { bitrate: [], max: 60 };
 
+/* Values that have not arrived yet carry a placeholder class; writing a real
+ * value drops it, so the grey hyphen never survives the first telemetry frame. */
 function setText(id, value) {
   const node = $(id);
-  if (node && node.textContent !== value) node.textContent = value;
+  if (!node) return;
+  if (node.textContent !== value) node.textContent = value;
+  if (value !== "-" && node.classList.contains("pending")) node.classList.remove("pending");
 }
 
 function fmtBitrate(bps) {
@@ -24,12 +28,19 @@ function fmtBitrate(bps) {
   return bps + " bps";
 }
 
+/* The tag beside the trace names the magnitude the plot is scaled to, so it is
+ * always two decimals and a unit rather than a formatted value with a moving
+ * unit: the label has to be the same number on every frame. */
+function fmtPeak(bps) {
+  return bps > 0 ? "peak " + (bps / 1e6).toFixed(2) + " Mbps" : "peak -";
+}
+
 /* An analyser that is switched off must not look like one that is broken, one
  * that is still starting must not look like one that is off, and one that is
  * working on an empty scene must not look like either. The state the server
  * reports is what separates those cases. */
 function analysisText(result, field, emptyLabel, limit = 3) {
-  if (!result) return "—";
+  if (!result) return "-";
   const state = result.state;
   if (state === "disabled") return "off";
   if (state === "pending") return "loading";
@@ -50,8 +61,8 @@ function render(s) {
   setText("m-res", s.width + "×" + s.height);
   setText("m-fps", (s.frame_rate ?? 0).toFixed(1) + " fps");
   setText("m-bitrate", fmtBitrate(s.bitrate));
-  setText("m-qp", s.qp ?? "—");
-  setText("m-psnr", s.psnr == null ? "—" : s.psnr + " dB");
+  setText("m-qp", s.qp ?? "-");
+  setText("m-psnr", s.psnr == null ? "-" : s.psnr + " dB");
   setText("m-pkts", s.packets_sent ?? 0);
   setText("m-pics", s.pictures ?? 0);
   setText("m-loss", ((s.fraction_lost ?? 0) * 100).toFixed(2) + " %");
@@ -68,7 +79,7 @@ function render(s) {
   setText("m-identities", analysisText(s.face_identities, "identities", "no face"));
   setText("m-audio", s.audio_last || (s.audio_events ? s.audio_events + " events" : "none"));
   setText("m-rec", s.recording ? "recording" : "off");
-  setText("src-label", "source: " + (s.source || "—"));
+  setText("src-label", "source: " + (s.source || "-"));
 
   $("alarm").classList.toggle("on", Boolean(s.alarm));
   setText("m-roi", s.roi ? "custom zone" : "whole picture");
@@ -143,25 +154,79 @@ function drawTracks(s) {
   box.replaceChildren(...nodes);
 }
 
+/* The trace is normalised to the maximum of its own window and the tag beside
+ * the chart prints that same maximum, so the height of the line is a number the
+ * reader can check instead of a shape with no units. The dashed rule sits at
+ * the peak's own scale position; it is muted grey rather than the accent so it
+ * cannot be read as a second series. */
 function drawSpark() {
   const canvas = $("spark");
   const ctx = canvas.getContext("2d");
   const values = history.bitrate;
-  const scale = Math.max(1, ...values);
+  const box = canvas.getBoundingClientRect();
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(box.width * ratio));
+  const height = Math.max(1, Math.round(box.height * ratio));
+  if (canvas.width !== width) canvas.width = width;
+  if (canvas.height !== height) canvas.height = height;
+  ctx.clearRect(0, 0, width, height);
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (values.length < 2) return;
+  if (!values.length) {
+    setText("m-peak", "peak -");
+    return;
+  }
 
+  const peak = Math.max(...history.bitrate) || 1;
+
+  const floor = 3 * ratio;      // the baseline the trace stands on
+  const ceiling = 6 * ratio;    // the dashed rule: the peak's scale position
+  const headroom = 4 * ratio;   // air between the rule and the apex
+  const band = Math.max(1, height - floor - ceiling - headroom);
+
+  ctx.save();
+  ctx.setLineDash([3 * ratio, 3 * ratio]);
   ctx.beginPath();
-  values.forEach((v, i) => {
-    const x = (i / (history.max - 1)) * canvas.width;
-    const y = canvas.height - (v / scale) * (canvas.height - 6) - 3;
-    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-  });
-  ctx.strokeStyle = "#4f9cf9";
-  ctx.lineWidth = 2;
+  ctx.moveTo(0, Math.round(ceiling) + 0.5);
+  ctx.lineTo(width, Math.round(ceiling) + 0.5);
+  ctx.strokeStyle = "rgba(154,165,170,.5)";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.restore();
+
+  if (values.length === 1) {
+    // One sample is still a window with a peak: a dot on the rule, so the scale
+    // the tag names is on screen from the first telemetry frame onwards.
+    const y = height - floor - (values[0] / peak) * band;
+    ctx.beginPath();
+    ctx.arc(2 * ratio, y, 2 * ratio, 0, Math.PI * 2);
+    ctx.fillStyle = "#5fd3c6";
+    ctx.fill();
+  } else {
+    ctx.beginPath();
+    values.forEach((v, i) => {
+      const x = (i / (history.max - 1)) * width;
+      const y = height - floor - (v / peak) * band;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "#5fd3c6";
+    ctx.lineWidth = 2 * ratio;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+  }
+
+  // A hairline floor, so the trace reads as a chart rather than a squiggle.
+  ctx.beginPath();
+  ctx.moveTo(0, height - 0.5);
+  ctx.lineTo(width, height - 0.5);
+  ctx.strokeStyle = "#252c30";
+  ctx.lineWidth = 1;
   ctx.stroke();
 
+  setText("m-peak", fmtPeak(peak));
+  canvas.setAttribute(
+    "aria-label",
+    "Recent video bitrate history, scaled to a peak of " + (peak / 1e6).toFixed(2) + " Mbps"
+  );
   setText("m-bitrate", fmtBitrate(values[values.length - 1]));
 }
 
@@ -219,8 +284,16 @@ function setView(next) {
   // The cache-buster forces the browser to open a fresh multipart stream
   // instead of reusing the previous one.
   image.src = "/api/stream.mjpg?view=" + view + "&t=" + Date.now();
-  $("view-source").classList.toggle("active", view === "source");
-  $("view-decoded").classList.toggle("active", view === "decoded");
+  // The pressed side of the toggle is the visible state; the aria-pressed pair
+  // and the screen-reader mirror say the same thing without a second label.
+  for (const [id, name] of [
+    ["view-source", "source"],
+    ["view-decoded", "decoded"],
+  ]) {
+    const button = $(id);
+    button.classList.toggle("active", view === name);
+    button.setAttribute("aria-pressed", view === name ? "true" : "false");
+  }
   setText("view-label", view === "decoded" ? "decoded (RVM1)" : "camera");
 }
 
@@ -370,6 +443,17 @@ async function pollClips() {
   }
 }
 
+/* 20261024_213812 reads as 2026-10-24 21:38, which is what the operator says
+ * out loud when asked which clip to open. */
+function clipLabel(name) {
+  const date = name.slice(0, 8);
+  const time = name.slice(9, 15);
+  return (
+    date.slice(0, 4) + "-" + date.slice(4, 6) + "-" + date.slice(6, 8) +
+    " " + time.slice(0, 2) + ":" + time.slice(2, 4)
+  );
+}
+
 function renderClips(clips) {
   const list = $("clips");
   // Only names the recorder could have produced reach the DOM: the panel is
@@ -380,7 +464,7 @@ function renderClips(clips) {
     .slice(-5)
     .reverse();
   if (!recent.length) {
-    list.innerHTML = '<li class="muted">No recording yet.</li>';
+    list.innerHTML = '<li class="empty">No recording yet</li>';
     return;
   }
   list.innerHTML = recent
@@ -389,8 +473,8 @@ function renderClips(clips) {
       return (
         '<li><a href="' + src + '" target="_blank" rel="noopener">' +
         '<img src="' + src + '" alt="first frame of ' + clip.name + '" loading="lazy" />' +
-        "<span>" + clip.name.replace("_", " ") + "<br /><small>" +
-        clip.frames + " frames</small></span></a></li>"
+        '<span class="clip-meta"><span class="clip-name">' + clipLabel(clip.name) + "</span>" +
+        '<span class="clip-sub">' + clip.frames + " frames</span></span></a></li>"
       );
     })
     .join("");
