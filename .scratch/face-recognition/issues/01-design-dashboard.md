@@ -1,6 +1,6 @@
 # 01 — 监控页设计规范（可读性与简化）
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:**
 真机自检：不需要
 **UI:** yes
@@ -122,3 +122,4 @@ r3 攻坚返工：只改 r2 门报告 `01-r2-verifier.md` 的一条 [spec]（§2
 ## Verdicts
 2026-11-09 r1 REJECTED 0f46685 门判文档四处数值与签字 mock 不符（[spec]4 按产物缺陷改走 [impl] 返工 r2）
 2026-11-09 r2 REJECTED e38d141 门判 §2 --panel 用途与签字 mock 不符且与 §7 自相矛盾（[spec]1，同根残留）
+2026-11-09 r3 VERIFIED 6edd865 探针 40/40、对比度 15 组复算命中、零回归零越界
