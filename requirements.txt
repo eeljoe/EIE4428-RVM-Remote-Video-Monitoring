@@ -1,5 +1,15 @@
-# Runtime dependencies for the RVM server.
+# Runtime dependencies for the RVM server (the core stream).
 # Install with:  pip install -r requirements.txt
+#
+# OpenCV is pinned below 5: the 5.x wheels drop the Haar cascade API *and* the
+# cascade data, so face detection silently reports "unavailable" on a clean 5.x
+# install.  The cascade itself is vendored in models/haarcascades, but the API
+# cannot be vendored.
 numpy>=1.24
 aiohttp>=3.9
-opencv-python-headless>=4.8
+opencv-python-headless>=4.8,<5
+
+# The optional analysers live in requirements-analysis.txt, not here: MediaPipe
+# depends on opencv-contrib-python, which owns the same cv2/ directory as the
+# headless build above.  Read that file before installing it -- the two must
+# not be installed side by side, and pip does not warn.

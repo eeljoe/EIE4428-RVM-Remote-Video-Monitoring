@@ -7,7 +7,7 @@ import re
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from rvm.server.app import create_app
+from rvm.server.app import _opencv_distributions, create_app
 from rvm.server.session import StreamSession
 
 
@@ -239,3 +239,108 @@ async def test_websocket_delivers_coded_packets(client):
         assert status["packets_sent"] > 0
     finally:
         await socket.close()
+
+# --------------------------------------------------------------------------
+# Optional analysis
+# --------------------------------------------------------------------------
+
+
+async def test_analysis_endpoints_report_an_empty_state(client):
+    for path, field in (
+        ("/api/tracks", "tracks"),
+        ("/api/faces/identities", "identities"),
+        ("/api/emotions", "emotions"),
+        ("/api/gestures", "gestures"),
+    ):
+        response = await client.get(path)
+        assert response.status == 200, path
+        body = await response.json()
+        assert body["count"] == 0, path
+        assert body[field] == [], path
+
+
+async def test_audio_events_endpoint_reports_the_capture_state(client):
+    body = await (await client.get("/api/audio/events")).json()
+
+    assert body == {"count": 0, "events": [], "running": False}
+
+
+async def test_features_endpoint_lists_every_optional_analyser(client):
+    body = await (await client.get("/api/features")).json()
+
+    assert set(body) == {
+        "enabled",
+        "ready",
+        "face_recognition",
+        "emotion_recognition",
+        "gesture_recognition",
+        "audio_monitoring",
+        "audio_available",
+    }
+    assert body["enabled"] is False
+    assert body["ready"] is False
+    assert body["face_recognition"] is False
+    assert body["emotion_recognition"] is False
+    assert body["gesture_recognition"] is False
+    assert body["audio_monitoring"] is False
+    # Nothing has probed the microphone yet in this fixture (no warm-up thread,
+    # no audio-control request), so the answer is "not looked" rather than a
+    # guess -- and, importantly, /api/status must not open PortAudio itself.
+    assert body["audio_available"] is None
+
+
+async def test_audio_control_rejects_a_truthy_string(client):
+    response = await client.post("/api/audio/control", json={"enabled": "false"})
+
+    assert response.status == 400
+
+
+async def test_audio_control_needs_a_json_body(client):
+    response = await client.post("/api/audio/control", data="not json")
+
+    assert response.status == 400
+
+
+async def test_audio_control_needs_the_enabled_key(client):
+    response = await client.post("/api/audio/control", json={"on": True})
+
+    assert response.status == 400
+
+
+async def test_audio_control_reports_what_it_did(client):
+    body = await (await client.post("/api/audio/control", json={"enabled": False})).json()
+
+    assert body["requested"] is False
+    assert body["running"] is False
+    assert isinstance(body["available"], bool)
+
+
+
+def test_the_opencv_warning_only_sees_opencv_distributions(monkeypatch):
+    """The dual-install warning must not fire on unrelated packages."""
+    from importlib.metadata import distributions
+
+    class Dist:
+        def __init__(self, name):
+            self.metadata = {"Name": name}
+
+    fake = [
+        Dist("numpy"),
+        Dist("opencv-python-headless"),
+        Dist("OpenCV-Contrib-Python"),
+        Dist("aiohttp"),
+    ]
+    monkeypatch.setattr("importlib.metadata.distributions", lambda: fake)
+
+    assert _opencv_distributions() == [
+        "opencv-contrib-python",
+        "opencv-python-headless",
+    ]
+
+
+async def test_audio_control_makes_the_device_answer_available(client):
+    body = await (await client.post("/api/audio/control", json={"enabled": False})).json()
+
+    features = await (await client.get("/api/features")).json()
+    assert isinstance(body["available"], bool)
+    assert isinstance(features["audio_available"], bool)

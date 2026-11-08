@@ -11,7 +11,7 @@ import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
 from rvm.analysis.track import CentroidTracker, regions_from_mask
-from rvm.server.app import create_app
+from rvm.server.app import PUMP, create_app
 from rvm.server.session import StreamSession
 
 WIDTH, HEIGHT = 160, 112
@@ -292,6 +292,12 @@ async def client():
     app = create_app(session=s)
     test_client = TestClient(TestServer(app))
     await test_client.start_server()
+    # The application's pump starts on startup and calls run_once() on its own.
+    # These tests inject their own frames and assert an exact track count, so a
+    # pump running alongside them would add frames from the synthetic scene and
+    # the count would depend on scheduling.  Stop it, then the test controls
+    # every picture.
+    app[PUMP].cancel()
     try:
         yield test_client, s
     finally:

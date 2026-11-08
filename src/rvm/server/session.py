@@ -23,15 +23,25 @@ viewer from adding latency for everyone else.
 from __future__ import annotations
 
 import asyncio
+import threading
 import time
 import uuid
 from pathlib import Path
 
 import numpy as np
 
+from ..analysis import states
 from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
+from ..analysis.gesture import GestureDetection, GestureRecognizer
+from ..analysis.recognition import (
+    EmotionDetection,
+    EmotionRecognizer,
+    FaceRecognition,
+    FaceRecognizer,
+)
 from ..analysis.track import CentroidTracker, regions_from_mask
 from ..analysis.quality import psnr
+from ..audio import AudioAnalyzer, AudioCapture, AudioEvent
 from ..codec.video import VideoEncoder
 from ..core.colorspace import rgb_to_ycbcr, to_planes
 from ..network.packet import Packet, frame_timestamp, packetize
@@ -40,6 +50,11 @@ from .recorder import FrameRecorder
 from .source import CaptureSource, SyntheticSource
 
 __all__ = ["ClientSession", "StreamSession"]
+
+#: How many audio events stay on record; the dashboard shows the newest few.
+AUDIO_EVENT_LIMIT = 50
+#: Audio chunks consumed per analysis tick, so a burst cannot stall a picture.
+AUDIO_CHUNKS_PER_TICK = 8
 
 
 class ClientSession:
@@ -95,6 +110,8 @@ class StreamSession:
         source: CaptureSource | None = None,
         motion_threshold: float = 0.01,
         record_dir: str | Path | None = None,
+        analysis: bool = False,
+        analysis_interval: float = 0.5,
     ) -> None:
         self.width = width
         self.height = height
@@ -115,6 +132,31 @@ class StreamSession:
         self.face_detector = FaceDetector()
         self.tracker = CentroidTracker()
 
+        # Optional analysis.  It is off unless asked for, because it is the one
+        # part of the pipeline that costs tens of milliseconds per picture and
+        # would otherwise make every test and every headless run pay for models
+        # it never uses.
+        self.analysis_enabled = analysis
+        self.analysis_interval = analysis_interval
+        self.face_recognizer = FaceRecognizer()
+        self.emotion_recognizer = EmotionRecognizer()
+        self.gesture_recognizer = GestureRecognizer()
+        self.audio_analyzer = AudioAnalyzer()
+        self.audio_capture: AudioCapture | None = None
+        # A freshly enabled analyser has not seen a picture yet: "pending", not
+        # "disabled", or the dashboard cannot tell "not started" from "off".
+        initial_state = states.STATE_PENDING if analysis else states.STATE_DISABLED
+        self._face_identities = FaceRecognition([], initial_state)
+        self._emotions = EmotionDetection([], initial_state)
+        self._gestures = GestureDetection([], initial_state)
+        # One tuple, swapped atomically: readers never see a half-applied tick.
+        self._analysis_view = (self._face_identities, self._emotions, self._gestures)
+        self._audio_events: list[AudioEvent] = []
+        self._models_ready = threading.Event()
+        self._warmup: threading.Thread | None = None
+        self._audio_lock = threading.Lock()
+        self._analysis_due = 0.0
+
         self.stats = StreamStats(window_seconds=4.0)
         self.recorder: FrameRecorder | None = None
 
@@ -130,6 +172,9 @@ class StreamSession:
         self._psnr: float | None = None
         self._injected: np.ndarray | None = None
         self._lock = asyncio.Lock()
+
+        if analysis:
+            self._start_model_warmup()
 
     # -- client management ---------------------------------------------------
 
@@ -248,6 +293,9 @@ class StreamSession:
         self._faces = self.face_detector.detect(luma)
         self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
 
+        self._analyse(frame)
+        self._drain_audio()
+
         encoded = self.encoder.encode(frame)
 
         # Quality is measured against the encoder's own reconstruction,
@@ -304,6 +352,186 @@ class StreamSession:
         except Exception:  # noqa: BLE001
             return None
 
+    # -- optional analysis ---------------------------------------------------
+
+    def _start_model_warmup(self) -> None:
+        """Load the MediaPipe bundles off the encode thread.
+
+        Creating a landmarker reads a multi-megabyte model; doing that inside
+        :meth:`_encode_once` would hold the first picture of the stream for
+        seconds.  The encode thread waits on :attr:`_models_ready` instead, so
+        the stream starts immediately and the analyzers join once they can.
+        """
+
+        def warm_up() -> None:
+            for recognizer in (
+                self.face_recognizer,
+                self.emotion_recognizer,
+                self.gesture_recognizer,
+            ):
+                try:
+                    recognizer.available  # noqa: B018 - forces the load
+                except Exception:  # noqa: BLE001 - a missing model is not fatal
+                    pass
+            # Probe the microphone here too: opening PortAudio costs ~300 ms
+            # and doing it from ``status()`` would stall the telemetry push.
+            try:
+                self._audio_capture().available
+            except Exception:  # noqa: BLE001 - no audio is not fatal either
+                pass
+            self._models_ready.set()
+
+        self._warmup = threading.Thread(
+            target=warm_up, name="rvm-model-warmup", daemon=True
+        )
+        self._warmup.start()
+
+    def _analyse(self, frame: np.ndarray) -> None:
+        """Run the optional analysers on a cadence rather than per picture.
+
+        Encoding one 320x240 picture costs 20-48 ms on the demonstration
+        machine, and one analysis pass costs 16-24 ms.  Running the analysers
+        per frame would therefore add 40-85 % to every picture to refresh a
+        dashboard panel; every ``analysis_interval`` seconds it costs 3-5 % of
+        the period instead.
+
+        The three results are published as one tuple so a reader never sees a
+        half-applied tick (face updated, gestures still pending).
+        """
+        if not self.analysis_enabled or not self._models_ready.is_set():
+            return
+
+        now = time.monotonic()
+        if now < self._analysis_due:
+            return
+        self._analysis_due = now + self.analysis_interval
+
+        face_identities = self.face_recognizer.recognize(frame)
+        emotions = self.emotion_recognizer.detect(frame)
+        gestures = self.gesture_recognizer.detect(frame)
+        self._analysis_view = (face_identities, emotions, gestures)
+
+    def _drain_audio(self) -> None:
+        """Move captured audio into events, a bounded number of chunks at a time.
+
+        Deliberately *not* behind the analysis gate: audio monitoring is a
+        separate switch.  Gating it there made ``POST /api/audio/control``
+        report a running microphone that could never produce an event.
+        """
+        capture = self.audio_capture
+        if capture is None or not capture.running:
+            return
+
+        # Rebind rather than mutate: ``status()`` slices this list from another
+        # thread, and an in-place ``extend`` can hand it a half-updated list.
+        events = list(self._audio_events)
+        for _ in range(AUDIO_CHUNKS_PER_TICK):
+            chunk = capture.read(timeout=0.0)
+            if chunk is None:
+                break
+            events.extend(self.audio_analyzer.analyze(chunk))
+        self._audio_events = events[-AUDIO_EVENT_LIMIT:]
+
+    def _audio_capture(self) -> AudioCapture:
+        """The microphone, created on first use so a headless run pays nothing.
+
+        Double-checked under a lock: the warm-up thread and an audio-control
+        worker both arrive here, and two AudioCapture objects would mean two
+        independent PyAudio contexts -- which is the crash this area keeps
+        working around, one level up.  The lock is held only for construction.
+        """
+        if self.audio_capture is None:
+            with self._audio_lock:
+                if self.audio_capture is None:
+                    self.audio_capture = AudioCapture()
+        return self.audio_capture
+
+    @property
+    def audio_enabled(self) -> bool:
+        """Whether the microphone is actually capturing right now."""
+        return self.audio_capture is not None and self.audio_capture.running
+
+    def set_audio_enabled(self, enabled: bool) -> bool:
+        """Start or stop audio monitoring; returns whether it is running.
+
+        Blocking: opening PortAudio costs a few hundred milliseconds, so call
+        this from a worker thread (the HTTP handler does).  The device probe
+        happens here for the same reason -- and so that the answer about the
+        device is never "never looked".
+        """
+        capture = self._audio_capture()
+        capture.available
+        if enabled:
+            if capture.start():
+                # A fresh start is a fresh measurement: leftover RMS history
+                # would let the first chunk of a new session look like the
+                # continuation of an alarm.
+                self.audio_analyzer.reset()
+                self._audio_events = []
+                capture.clear_buffer()
+        else:
+            capture.stop()
+        return self.audio_enabled
+
+    def audio_report(self, requested: bool) -> dict:
+        """Apply an audio-control request and describe the outcome.
+
+        One method so that the whole blocking interaction -- probe, open,
+        report -- is a single hop to a worker thread instead of the response
+        being assembled on the event loop, where the first probe alone stalls
+        every other request for ~300 ms.
+        """
+        running = self.set_audio_enabled(requested)
+        capture = self.audio_capture
+        return {
+            "requested": requested,
+            "running": running,
+            "available": bool(capture and capture.available),
+            "reason": None if capture is None else capture.unavailable_reason,
+        }
+
+    def features(self) -> dict:
+        """Which optional analysers this machine can actually run.
+
+        Availability is reported from what has already been probed rather than
+        by probing here: ``status()`` calls this twice a second, and opening
+        PortAudio or a MediaPipe model on that path would stall the telemetry
+        push for hundreds of milliseconds.  ``audio_available`` is therefore
+        ``None`` until the warm-up thread (or an audio-control request) has
+        looked.
+        """
+        ready = self.analysis_enabled and self._models_ready.is_set()
+        return {
+            "enabled": self.analysis_enabled,
+            "ready": self._models_ready.is_set(),
+            "face_recognition": ready and self.face_recognizer.available,
+            "emotion_recognition": ready and self.emotion_recognizer.available,
+            "gesture_recognition": ready and self.gesture_recognizer.available,
+            "audio_monitoring": self.audio_enabled,
+            "audio_available": (
+                None if self.audio_capture is None else self.audio_capture.availability
+            ),
+        }
+
+    def analysis_status(self) -> dict:
+        """The analysis half of the API, in one shape for every caller."""
+        face_identities, emotions, gestures = self._analysis_view
+        return {
+            "tracks": {
+                "count": len(self._tracks),
+                "tracks": [track.snapshot() for track in self._tracks],
+            },
+            "face_identities": face_identities.snapshot(),
+            "emotions": emotions.snapshot(),
+            "gestures": gestures.snapshot(),
+            "audio": {
+                "count": len(self._audio_events),
+                "events": [event.snapshot() for event in self._audio_events[-20:]],
+                "running": self.audio_enabled,
+            },
+            "features": self.features(),
+        }
+
     # -- outputs -------------------------------------------------------------
 
     def snapshot_jpeg(self, view: str = "source") -> bytes | None:
@@ -340,6 +568,7 @@ class StreamSession:
 
     def status(self) -> dict:
         """A JSON-friendly summary for the dashboard and the REST API."""
+        face_identities, emotions, gestures = self._analysis_view
         snapshot = self.stats.snapshot()
         motion = self._motion.snapshot() if self._motion else {}
         faces = self._faces.snapshot() if self._faces else {}
@@ -367,6 +596,17 @@ class StreamSession:
                 "motion_sensitivity": self.motion_sensitivity,
                 "motion": motion,
                 "tracks": [track.snapshot() for track in self._tracks],
+                # The analysis results ride along with the telemetry the
+                # WebSocket already pushes, so the dashboard needs no second
+                # polling loop to show them.
+                "face_identities": face_identities.snapshot(),
+                "emotions": emotions.snapshot(),
+                "gestures": gestures.snapshot(),
+                "audio_events": len(self._audio_events),
+                "audio_last": (
+                    self._audio_events[-1].event_type.value if self._audio_events else None
+                ),
+                "analysis": self.features(),
             }
         )
         return snapshot
@@ -393,4 +633,19 @@ class StreamSession:
         if self.recorder is not None:
             self.recorder.stop()
             self.recorder = None
+        if self.audio_capture is not None:
+            self.audio_capture.close()
+            self.audio_capture = None
+
+        # The warm-up thread may still be loading models; releasing them while
+        # it runs would race with the loader.
+        if self._warmup is not None and self._warmup.is_alive():
+            self._warmup.join(timeout=5.0)
+        for recognizer in (
+            self.face_recognizer,
+            self.emotion_recognizer,
+            self.gesture_recognizer,
+        ):
+            recognizer.close()
+
         self.source.close()

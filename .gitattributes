@@ -1,0 +1,3 @@
+# Model assets and cascades are binaries: a line-by-line diff of them is noise
+# that buries the code a review is actually about.
+models/** binary

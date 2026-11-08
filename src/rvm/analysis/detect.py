@@ -22,17 +22,29 @@ that, and applies two further pieces of standard practice:
 
 Face detection
 --------------
-Uses the Haar cascade shipped with OpenCV.  It is optional: if the cascade data
-is unavailable the detector reports zero faces rather than failing the stream,
-because a monitoring system that stops because of a missing asset is worse than
-one that reports no faces.
+Uses a Haar cascade.  The cascade is shipped in this repository (``models/
+haarcascades``) rather than taken from ``cv2.data``, because OpenCV 5 no longer
+bundles the cascade files: with a 5.x wheel the detector silently reported
+"unavailable" and a core requirement quietly stopped working.  Loading it from
+the repository makes face detection independent of which OpenCV build is
+installed -- including the ``opencv-contrib-python`` that MediaPipe drags in.
+
+It is still optional: if the cascade cannot be loaded the detector reports zero
+faces rather than failing the stream, because a monitoring system that stops
+because of a missing asset is worse than one that reports no faces.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
+from pathlib import Path
 
 import numpy as np
+
+from .models import model_path
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "FaceDetection",
@@ -298,23 +310,53 @@ class FaceDetector:
 
     @property
     def available(self) -> bool:
-        return self._classifier is not None
+        return self._load() is not None
+
+    def _candidates(self) -> list[Path]:
+        """Where the cascade may live, most authoritative first.
+
+        The repository copy wins so that installing a different OpenCV build
+        cannot change what the detector does.  ``cv2.data`` is kept as a
+        fallback for a deployment that ships the cascade the old way.
+        """
+        candidates: list[Path] = []
+        try:
+            candidates.append(model_path(f"haarcascades/{self.cascade_name}"))
+        except FileNotFoundError:
+            pass
+        try:
+            import cv2
+
+            candidates.append(Path(cv2.data.haarcascades) / self.cascade_name)
+        except Exception:  # noqa: BLE001 - no data dir is the normal 5.x case
+            pass
+        return candidates
 
     def _load(self):
         if self._classifier is not None or self._load_failed:
             return self._classifier
 
+        candidates = self._candidates()
         try:
             import cv2
 
-            path = cv2.data.haarcascades + self.cascade_name
-            classifier = cv2.CascadeClassifier(path)
-            if classifier.empty():
-                self._load_failed = True
-                return None
-            self._classifier = classifier
+            for candidate in candidates:
+                classifier = cv2.CascadeClassifier(str(candidate))
+                if not classifier.empty():
+                    self._classifier = classifier
+                    break
         except Exception:  # noqa: BLE001 - any failure means "no faces available"
+            pass
+
+        if self._classifier is None:
             self._load_failed = True
+            # Loud on purpose: this failure used to be silent, so "no faces" on
+            # the dashboard looked like an empty room rather than a missing
+            # asset.
+            log.warning(
+                "face detection unavailable: no usable Haar cascade among %s",
+                ", ".join(str(path) for path in candidates) or "(no candidate path)",
+            )
 
         return self._classifier
 
