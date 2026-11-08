@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<!-- 08 overall-cleanup self-check viewport wrapper.
+     Pins the real page in an iframe of exactly ?w x ?h CSS px (Chromium's OS
+     window is not reliably the layout viewport at 390px), prints the
+     registry->STREAM seam reading into #bar, and with ?scroll=seam centres that
+     boundary so the screenshot shows it. A verbatim copy is archived in
+     verifier-probes; the live copy sits in src/rvm/web for same-origin serving
+     and is deleted before the commit. -->
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #f { border: 0; display: block; position: absolute; left: 0; top: 0; }
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0; box-sizing: border-box;
+    background: #ffee58; color: #000; font: 11px/1.35 monospace;
+    padding: 3px 5px; white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+</style>
+</head><body><iframe id="f" src="/" style="width: 390px; height: 844px;"></iframe>
+<div id="bar">VP 390x844  docW=390/390
+SEAM registry.bottom=845 stream.top=869
+SEAM box=24px visual=25px line=1px solid rgb(37, 44, 48)
+ALL box/visual/line: Stream=24/25/1  Transport=24/25/1
+                    Analysis=24/25/1  Clips=24/25/1</div>
+<script>
+const q = new URLSearchParams(location.search);
+const W = parseInt(q.get("w") || "390", 10);
+const H = parseInt(q.get("h") || "844", 10);
+const f = document.getElementById("f");
+f.style.width = W + "px";
+f.style.height = H + "px";
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const num = (v) => Math.round(v * 100) / 100;
+
+f.addEventListener("load", async () => {
+  const w = f.contentWindow;
+  const d = w.document;
+  const until = async (cond, tries) => {
+    for (let i = 0; i < tries; i++) { const v = cond(); if (v) return v; await new Promise((r) => setTimeout(r, 20)); }
+    return null;
+  };
+  try {
+    /* Wait for the first telemetry render, so heights are the settled ones. */
+    await until(() => d.querySelectorAll("dd:not(.pending)").length > 3, 900);
+    const reg = d.getElementById("face-registry").getBoundingClientRect();
+    const label = (s) => {
+      const h2 = s.querySelector("h2");
+      if (!h2) return "?";
+      const text = h2.firstChild && h2.firstChild.nodeType === 3 ? h2.firstChild.textContent : h2.textContent;
+      return text.trim();
+    };
+    const sections = Array.from(d.querySelectorAll("main .section")).map((s) => ({
+      node: s,
+      name: label(s),
+      rect: s.getBoundingClientRect(),
+      style: w.getComputedStyle(s),
+    }));
+    const sorted = sections.slice().sort((a, b) => a.rect.top - b.rect.top);
+    const whitespace = (style) =>
+      num(parseFloat(style.marginTop) + parseFloat(style.borderTopWidth) + parseFloat(style.paddingTop));
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+      const above = sorted[i - 1], below = sorted[i];
+      if (Math.abs(above.rect.left - below.rect.left) < 10) {
+        gaps.push(below.name + "=" + Math.round(below.rect.top - above.rect.bottom) +
+          "/" + whitespace(below.style) + "/" + parseFloat(below.style.borderTopWidth));
+      }
+    }
+    const stream = sections.find((s) => s.node === d.querySelector(".rail > .section"));
+    const seam = {
+      box: Math.round(stream.rect.top - reg.bottom),
+      visual: whitespace(stream.style),
+      line: stream.style.borderTopWidth + " " + stream.style.borderTopStyle +
+        " " + stream.style.borderTopColor,
+    };
+    const lines = [
+      "VP " + W + "x" + H + "  docW=" + d.documentElement.scrollWidth + "/" +
+        d.documentElement.clientWidth,
+      "SEAM registry.bottom=" + Math.round(reg.bottom) + " stream.top=" +
+        Math.round(stream.rect.top),
+      "SEAM box=" + seam.box + "px visual=" + seam.visual + "px line=" + seam.line,
+      "ALL box/visual/line: " + gaps.slice(0, 2).join("  "),
+      "                    " + gaps.slice(2).join("  "),
+    ];
+    bar(lines.join("\n"));
+    if (q.get("scroll") === "seam") {
+      w.scrollTo(0, Math.max(0, Math.round(stream.rect.top) - 300));
+    }
+  } catch (e) {
+    bar("VP " + W + "x" + H + " ERROR :: " + e.message + " :: sections=" +
+      (f.contentWindow && f.contentWindow.document.querySelectorAll("main .section").length) +
+      " h2s=" + JSON.stringify(Array.from(f.contentWindow.document.querySelectorAll("main .section h2")).map((n) => n.textContent)));
+  }
+});
+</script>
+</body></html>
