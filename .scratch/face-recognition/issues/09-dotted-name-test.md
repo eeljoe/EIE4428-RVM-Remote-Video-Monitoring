@@ -1,6 +1,6 @@
 # 09 — 补合法名字含点的参数用例
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 08
 真机自检：不需要
 
