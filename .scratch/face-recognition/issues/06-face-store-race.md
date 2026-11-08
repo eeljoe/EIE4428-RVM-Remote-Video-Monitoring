@@ -91,3 +91,4 @@
 ## Verdicts
 
 - 2026-11-09 r1 VERIFIED 2af49cd — 干净副本亲手复现：`remove_face` 读—改—写全程持同一把 `_faces_lock`；全还原与「仅复制行出锁」两个变异各产出确定性红（sha1 与 worker 自证逐字节一致），还原后 16 绿；20 连跑零抖动；全套 552 绿。｜报告：.scratch/face-recognition/reports/06-r1-verifier.md｜模型路线：未标注（派发未带 --model）
+- 2026-11-09 r1 VERIFIED 2af49cd — 干净副本亲手复现：`remove_face` 读—改—写全程持同一把 `_faces_lock`；全还原与「仅复制行出锁」两个变异各产出确定性红（sha1 与 worker 自证逐字节一致），还原后 16 绿；20 连跑零抖动；全套 552 绿。｜报告：.scratch/face-recognition/reports/06-r1-verifier.md｜模型路线：swe-2-high
