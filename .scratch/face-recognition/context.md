@@ -46,89 +46,34 @@
 
 ### 票 2
 
-r1:
-- **`DELETE` 缺失名字回 404 时 reason 用 `bad-name`** / 理由：契约枚举里没有 `not-found`，而 404 状态由契约固定 / 影响面：前端要按 404 + `bad-name` 判「这个名字不在名单里」。
-- **每次取样单独取锁，而不是整个注册持锁** / 理由：把编码线程的最长阻塞压到一次推理（约 20 ms），仍保证「两处不同时推理」 / 影响面：注册总耗时可能被分析 tick 插队拉长几十毫秒。
-- **注册要求最近三帧每帧恰好一张脸** / 理由：多脸时「取一张」没有唯一解，静默选第一张会把错误的人注册进去 / 影响面：双人入镜时必须单独站到镜头前。
-- **`FaceStore` 与 `FaceRecognizer` 各持一份映射，由 `_publish_faces` 同步** / 理由：识别路径不能每次识别都读文件 / 影响面：任何绕过 `_publish_faces` 的写名单都会让两份分叉（目前只有加载与这两个端点写）。
-- **`tests/test_face_api.py` 里 `cv2.ocl.setUseOpenCL(False)`** / 理由：本机 OpenCV 4.14 在**工作线程**里跑 Haar 级联后，进程退出时 `clReleaseDevice` 失败并 abort，整份 pytest 在全部通过后以 0xC0000409 退出；用只调用 `FaceDetector().detect` 的三行探针即可复现，与票内代码无关（`src/rvm/analysis/detect.py` 未改）/ 影响面：测试进程不用 GPU 路径，产品行为不变；这是环境绕行，不是功能的一部分。
-- **名单 JSON 形状 `{"version": 1, "faces": {name: [..]}}`** / 理由：留版本位以便以后迁移；`faces` 包一层避免与未来元数据键冲突 / 影响面：其他票（05 集成）直接读写该文件时要按此形状。
-
-r2:
-- **同时做 `_parse` 等长校验与 `_nearest` 宽度守卫** / 理由：门给的整改是「或」两种；但只有等长校验时，一份「全部 8 维」的手改名单仍会杀死 pump（门 FINDINGS-2 的原始触发样例正是单条目 8 维），而只有守卫时又抓不到「两种宽度混在一份文件里」这种显然的损坏 / 影响面：坏名单在加载时降级为空，或在识别时被跳过，两条路径都不再抛异常。
-- **`_faces_lock` 用 `RLock` 而不是普通 `Lock`** / 理由：`register_face` 需要「复检 + 发布」原子，而 `_publish_faces` 自己也要保护删除路径，嵌套取锁是最短写法 / 影响面：锁的持有者可重入，没有额外语义。
-- **`register_face` 保留顶部那次重名检查** / 理由：让重复名字在推理前就被 409，不必等三次 landmarker 调用 / 影响面：同名并发时两次请求都跑完采样，浪费约 3 次推理，但结果仍是一个 201。
-- **r2 真机自检换端口与临时名单路径，新开 `-r2` 文件** / 理由：8099 被 03 号票的服务器占用（本机实测），且 r1 的读数不能当 r2 证据（产品代码已变）/ 影响面：`data/known_faces.json` 未在仓库内产生，r1 证据文件保持原样。
+- 404 缺名字用 `bad-name`（契约无 not-found）；每次取样单独取锁；三帧每帧须恰一张脸；FaceStore 与 FaceRecognizer 两份映射由 `_publish_faces` 同步；测试里 `cv2.ocl.setUseOpenCL(False)` 绕开 OpenCV 退出 abort；名单形状 `{"version":1,"faces":{name:[..]}}`。
+- r2：`_parse` 等长校验与 `_nearest` 宽度守卫双做；锁改 `RLock`；同名检查保留在采样前；真机自检换端口与临时名单。
 
 ### 票 6
 
-- **决定：改 `src/rvm/server/session.py`，越出票面写域一行** / 理由：缺陷（`remove_face` 的锁外复制）与 `_faces_lock` 都只在该文件；票面锚点 `grep -n "def remove_face" src/rvm/analysis/face_store.py` 无命中（`face_store.py` 只有 store 层 `remove`），照写域做无法修 / 影响面：改动仅 `remove_face` 一个方法体 + `_faces_lock` 的注释，未碰 `src/rvm/web/*`、`tests/test_app.py` 等其它文件；门若判越界请以此处置。
-- **决定：并发测试放 `tests/test_face_store.py`（而不是 `tests/test_face_api.py`）** / 理由：票面写域与定向命令只指该文件 / 影响面：该文件新增 `from rvm.server.session import StreamSession`（连带 cv2），定向跑从 0.4s 量级变为约 1.6s。
-- **决定：用 `ObservedLock` 替换 `_faces_lock` 作确定性接缝** / 理由：旧实现的坏交错唯一可观测点就是「锁入口之前已完成复制」，sleep 只能猜 / 影响面：测试依赖「`_faces_lock` 是实例属性且以 `with` 使用」；换成模块级锁或非上下文管理器时测试需同步改。
-- **决定：测试直接填 `_recent_frames`，不跑 `run_once`** / 理由：这三帧就是注册要平均的内容，跑 `run_once` 只为生成同样三帧，却引入 Haar 与 OpenCL 退出问题 / 影响面：本票证据不含分析 tick 路径（已由 02 票测试覆盖）。
-- **决定：多写一条 remove-vs-remove 测试** / 理由：门首攻靶点名「删除与注册交错是否还有第二条路径」，同类缺陷在两条删除之间同样成立 / 影响面：多一条测试，产品代码不变。
-- **决定：`FaceStore.add`/`replace` 不加锁，判为无同类漏洞** / 理由：它们的生产写点只有 `_publish_faces`（锁内）与 `__init__` 的 `load()`（线程启动前），`FaceStore.add/remove` 只被测试直接调用 / 影响面：若以后有人在 session 之外直接调 `FaceStore.add`，丢更新会以新路径回归，测试不覆盖。
+- 越出票面写域改 `session.remove_face`（锁外复制缺陷只在该文件）；并发测试放 `tests/test_face_store.py`；`ObservedLock` 作确定性接缝；测试直接填 `_recent_frames`；补 remove-vs-remove；`FaceStore.add/replace` 判为无同类漏洞。
 
 ### 票 3
 
-- 决定：FACE REGISTRY 在本票只做静态外壳（分区标题、名字标签、输入框、`REMEMBER FACE`、空状态行、名单空态），不接任何请求 / 理由：本票 AC 的 390 顺序点名 FACE REGISTRY，没有这个分区就量不出顺序；行为、五态文案与删除属 04 号票 / 影响面：04 号票接线时只补 JS，不必动结构；本票动态门不应期待注册可用。
-- 决定：390 的读数改单列（规范 §4.1 默认双列）/ 理由：双列时读数只剩 45px，9 条被截断，超过 §4.1 自己写的「超过三条」退让条件 / 影响面：仅 ≤560；字号未动。
-- 决定：折线只有 1 个样本时也画点、也写角标 / 理由：否则开页第一秒是 `peak -` 加空白画布，容易被读成「折线坏了」；对 1 元素窗口峰值仍成立 / 影响面：多样本时的线形不变。
-- 决定：未到的读数占位从 `&mdash;` 改成 `-` 并加 `.pending` 灰字 / 理由：规范 §4.1 要连字符、§10 禁长破折号 / 影响面：首帧视觉；`setText()` 多一步去 class。
-- 决定：CLIPS 行把 `20261024_213812` 显示成 `2026-10-24 21:38` / 理由：规范 NOTES 第 8 条要求现场好念 / 影响面：只改可见文案，文件名与下载路径不变。
-- 决定：删掉 `#stage` 的 `data-channel="CAM 01"` 与底部 overlay / 理由：它们是来源标签的第二份副本，规范把来源与时间移进画面两角 OSD / 影响面：`data-channel` 属性不再存在，`#src-label`/`#time-label`/`#view-label` 三个 id 保留。
-- 决定：≥901px 右栏加 `max-height: calc(100vh - 102px)` 与栏内滚动 / 理由：规范 §6 说明这是本票新增规则 / 影响面：仅在内容超高时生效，1440x1000 实测不触发。
-- 决定：八项操作按「七个控件 + 画面拖拽划区」计 / 理由：spec AS-5 与规范 §6 只列了七个按钮，第八项只能是 ROI 拖拽 / 影响面：测试按这八条钉住，若门另有口径只改测试一处。
-- 决定：`#record` 仍用 `active` 类驱动 `Start/Stop recording` 文案，不并入 `.seg` / 理由：既有 app.js 依赖该 class 与文案切换，改它属行为变更 / 影响面：录制态样式改走 `#record.active` 的告警色。
+- 本票只做静态外壳（分区标题、输入、按钮、空状态行、名单空态），接线留 04；390 读数改单列；折线单样本也画点与角标；未到读数用 `-` 加 `.pending`；CLIPS 日期人读化；删 `#stage` 的 `data-channel` 与底部 overlay；≥901 右栏 `max-height` 加栏内滚动；八项操作按七控件加 ROI 拖拽计；`#record` 仍用 `active` 类。
 
 ### 票 4
 
-- 决定：五态文案逐字取票面 AC 的字面量（`no face in frame, hold still`、
-  `more than one face in frame`、`<name> is already saved`、`analysis is off`、
-  `models still loading`），不用 `DESIGN-dashboard.md` §8 的句子式写法
-  （`Two faces in frame, show one`、`... add a surname`、`Analysis is off`）。
-  / 理由：票面是唯一需求源且 AC 明写「五态文案」；DESIGN 与票面冲突以票面为准。
-  / 影响面：与 §8 的大小写和两处措辞不同，若门按 §8 比对会判不一致；改文案只动
-  `app.js:480`。
-- 决定：`REMEMBER FACE` 在预热(`pending`)与分析关闭(`disabled`)时**不置灰**，只在请求
-  在途时 `disabled`。 / 理由：票面要求「models still loading」「analysis is off」两种文案
-  能被真正触发，置灰会堵掉唯一入口；DESIGN §4.4/§8 的置灰条款因此未实施。
-  / 影响面：预热 2-3 秒内可点，点后得到一行 503 文案；没有测试钉住置灰。
-- 决定：`no-faces` 且名单为空时 Face IDs 显示 `0 faces, none known`（票面 `N faces,
-  none known` 取 N=0），名单非空时显示 `no face`。 / 理由：票面要求「名单为空且无人脸」
-  时回显人数，同时不能在有名单时谎报 none known。 / 影响面：与 03 号票的
-  `no known faces` / `no face` 不同，只影响这一行。
-- 决定：票面里「显示 `no-known-faces`」按**状态词**理解，不上屏。 / 理由：DESIGN §8
-  的五态表没有把状态词作为文案，AS-2 同句给的可见文案是 `N faces, none known`。
-  / 影响面：页面上不出现字符串 `no-known-faces`；若门要求它可见，需要新增一行文案。
-- 决定：删除成功后把状态行清空，不加「已删除」文案。 / 理由：五态表只定义注册结果，
-  票面没给删除文案，多写一句等于发明。 / 影响面：删除后回到空状态行（高度不变，
-  `.status:empty::before` 隐点）。
-- 决定：注册/删除成功后额外 `GET /api/faces/identities` 刷新 Face IDs 行。
-  / 理由：票面 AC 要「Face IDs 立刻刷新」，等遥测最多 0.5 s。 / 影响面：每次写操作多一个
-  GET，失败时静默等下一帧。
-- 决定：真机自检用**同源 iframe 驱动页**代替人工键鼠（临时文件，截图后删除）。
-  / 理由：本会话的桌面输入只能后台投递，Chromium 的 `text_input` 后台不可用、前台被拒；
-  同源 iframe 可以像人一样 `value=` + `click()` 点到真实页面。 / 影响面：产品文件未改；
-  驱动页副本留在 `verifier-probes/04-selfcheck-harness.html`，并在自检文档里写明哪几张图是桩。
+- 五态文案取票面字面量，与 DESIGN §8 句子式写法不同，票面优先；`REMEMBER FACE` 不置灰，仅请求在途 disabled；`no-faces` 且空名单显示 `0 faces, none known`，有名单时显示 `no face`；状态词不上屏；删除后清空状态行；写后额外 GET identities；真机自检用同源 iframe 驱动页，产品文件未改。
 
 ### 票 5
 
-- 决定：把 02-r2-verifier-persist 的两段（跨进程持久化、混合宽度降级）并进**一条**测试 / 理由：每次进程启动实测约 1.7 s，另立一条只是多一次启动 / 影响面：两段共享一次 `--no-analysis` 配置，失败靠断言文本区分阶段。
-   - 决定：桩掉 emotion/gesture 的 `_failure` 而不只桩 `detect` / 理由：`features()` 会问 `available` 并真的加载两个 MediaPipe 模型，实测把这条测试从 0.48 s 拖到 2.76 s，且让「无模型机器」变成另一种未定义行为 / 影响面：测试依赖 `_failure` 这个内部失败缓存属性名。
-   - 决定：失败路径测试末尾追加一次成功注册 / 理由：只断言 409 不能区分「服务还能干活」与「错误处理器还能回话」 / 影响面：多一次 201 POST，多钉住一条「拒绝后仍可写」。
-   - 决定：子进程测试标 `pytest.mark.slow` / 理由：单条约 5 s，是套件里最慢的一条，标记只为可读性（默认不筛） / 影响面：`--strict-markers` 下 marker 已在 `pyproject.toml` 注册，无新增配置。
-   - 决定：不收编 02-mirror-sync / 06-race / 02-pumpguard 探针 / 理由：它们的断言已逐条落在 `tests/test_face_api.py:519,538,552,574` 与 `tests/test_face_store.py:290,330` / 影响面：套件不新增重复测试；清单与逐条对应写在报告里。
-   - 决定：测试文件压到 300 行（票面上限）而把真机读数放探针 / 理由：尺寸上限，且真机读数不属于套件回归 / 影响面：`05-integration-selfcheck.*` 三个文件在探针目录，不改历史探针。
+- 持久化与混合宽度降级合成一条测试省一次进程启动；桩 `_failure` 避免加载 MediaPipe；失败路径末尾补成功注册；子进程测试标 `slow`；不收编 02/06 探针（断言已落在正式套件）；测试压到 300 行，真机读数放探针。
 
 ### 票 7
 
-- 决定：把两条与注册无关的断言移进独立类 `TestMeasuredClaimsMatchTheImplementation`，
-  而不是只删掉孤儿 docstring / 理由：门 FINDINGS-4 同时点了「docstring 是死语句」
-  与「无关断言混入新类名下」两件事，只删注释会留下后半句 / 影响面：
-  `tests/test_report.py` +3 行，两条测试的断言与执行不变。
-- 决定：版本戳由**写路径**自增（`renderWrittenNames`），读路径只比较不自增 /
-  理由：只有写拥有更新的真相，读自增会让两次并发读互相作废 / 影响面：任何绕过
-  `renderWrittenNames` 的新写路径都会失去保护。
-- 决定：守卫用 `stamp !== namesStamp` 而不是 `<` / 理由：戳是单调计数器，相等即
-  「这段时间没有写」，比较值比比较大小更难写错 / 影响面：无。
+- 两条无关断言移入独立类而非只删 docstring；版本戳由写路径自增、读路径只比较；守卫用 `stamp !== namesStamp`。
+
+### 票 8
+
+- 决定：改 `src/rvm/server/session.py`，而不是写域列出的 `src/rvm/server/app.py` / 理由：开工包要求「把名字合法性判断收进现有校验函数」，唯一的现有校验函数是 `session.py:83` 的 `validated_face_name`；`app.py` 只做「请求体形状」的 `bad-name`（:387-389），在那里加路径规则等于开第二份判定 / 影响面：写域 5 个文件里 `app.py` 未改，`session.py` 只动一个函数体 + docstring，其余零改动（与 06 号票同类偏差，处置同前例）。
+- 决定：DESIGN 顺带改 §4.4 的 loading 段（:127）与 §8「录制中」（:193）/ 理由：静态门 FINDINGS-2 原文点名 `:127`、`:189` 与表格同属一处漂移，只改表格会留下一句现存的假话 / 影响面：只改文档，产品无改动。
+- 决定：把「`REMEMBER FACE` 置 disabled」改成「不置灰」写入文档 / 理由：04 号票已明确否决置灰且实现如此（`app.js` 只在请求在途时 disabled），文档是唯一错的一方 / 影响面：新测试只钉文案，不钉这条行为描述；门若要更强约束需另加断言。
+- 决定：§8 新增 `models still loading` 与 `loading` 两条字面量，但保留「五态」标题不改「六态」/ 理由：这是状态行真实能出现的第 6 条文案（原文档完全没写），而票面 AS-7 用「五态」指称 §8 / 影响面：§8 现在读起来是「五态表 + 预热补一条」，不是重新定义状态数。
+- 决定：真机自检把驱动页临时放进 `src/rvm/web/08-vp.html`（截图后删除，`git status` 无该文件）/ 理由：只有同源 iframe 才能读到真实页面的 `getBoundingClientRect`；前序 04 票与整体动态门用的是同一做法 / 影响面：产品文件未改，探针副本存 `verifier-probes/08-overall-cleanup-viewport.html`。
+- 决定：自检读数同时给出两种口径（`box` 与 `visual`）/ 理由：门报告用 `b.top - a.bottom` 量出 16，而设计 §6 的「视觉间隔 24」是 `margin + padding`；只报一种口径容易被读成「24 其实还是 16」/ 影响面：`box=24` 与其余四条界线同值，`visual=25`（多算 1px 边框）也同值。

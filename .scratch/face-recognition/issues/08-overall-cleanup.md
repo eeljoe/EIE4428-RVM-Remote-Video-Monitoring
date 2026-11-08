@@ -1,6 +1,6 @@
 # 08 — 整体门收口：移动端间隙、名字校验、设计文案
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 07
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/08-overall-cleanup-selfcheck.md`）
 **UI:** yes
@@ -101,3 +101,5 @@
 - 决定：自检读数同时给出两种口径（`box` 与 `visual`）/ 理由：门报告用 `b.top - a.bottom` 量出 16，而设计 §6 的「视觉间隔 24」是 `margin + padding`；只报一种口径容易被读成「24 其实还是 16」/ 影响面：`box=24` 与其余四条界线同值，`visual=25`（多算 1px 边框）也同值。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED c15b659 — 三条整体门 Important（≤900px 分区界线、不可删名字、§8 文案漂移）逐条拿到本轮新鲜证据并通过；全套 590 绿、回归面零改动；唯一存活变异是套件合法名参数列缺「含点名字」导致的过拒盲区，记 Important[test] 并附收编清单。｜报告：.scratch/face-recognition/reports/08-r1-verifier.md｜模型路线：swe-2-high
