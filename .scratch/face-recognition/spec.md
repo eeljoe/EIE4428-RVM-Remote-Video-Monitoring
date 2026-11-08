@@ -40,21 +40,30 @@
 
 ## Acceptance Statements
 
-AS-1: 面板注册闭环。输入名字并点按钮后，服务端从最近三帧各取一张脸求平均并写入名单；成功返回样本数，失败返回可读原因，画面流不中断。
-AS-2: 识别展示。已注册人脸在分析面板显示名字与相似度；低于阈值或名单为空时不显示名字，保持 `no-known-faces` 与人数。
+AS-1: 面板注册闭环。输入名字并点按钮后，服务端从最近三帧各取一张脸求平均并写入名单；成功返回样本数，失败返回可读原因。注册请求期间 MJPEG 与 `/api/status` 不被阻塞，画面流不中断。
+AS-2: 识别展示。已注册人脸在分析面板显示名字与相似度；低于阈值或名单为空时不显示名字；无人脸时显示 `no-known-faces` 与人数（`N faces, none known`）。
 AS-3: 持久化。名单写入 `data/known_faces.json`；重启服务后仍能识别；删除后立即从名单消失并落盘。
 AS-4: 失败与降级。无脸、多脸、重名返回 409 且不写文件；分析关闭、模型未就绪或识别器不可用返回 503；既有四个分析器状态不变。
 AS-5: 不回归。既有 DOM ID、八项操作、响应式与无远程资源保持；390×844 与 1440×1000 视口可用；全套测试通过，无新增依赖。
 AS-6: 可读性。全页最小标签字号 12px、数值 15px 起，手机正文 14px 起；灰字与近黑底对比度至少 4.5:1；行高至少 1.5；分组间距至少 20px。两档视口截图上，遥测与控件不必凑近才能读。
 AS-7: 简洁与观感。去掉冗余框线与重复标签，分区不超过 6 个；画面为第一焦点；控件与读数一个不少；页面在 1440×1000 内不出现被截断的操作。
 
+## 接口契约
+
+- `POST /api/faces/known` 请求体 `{"name": "Alice Ng"}`。成功 201：`{"name", "samples", "known": ["..."]}`。
+- `GET /api/faces/known` 返回 `{"known": ["Alice Ng", "..."]}`。
+- `DELETE /api/faces/known/{name}` 返回 `{"removed": true, "known": [...]}`，不存在返回 404。
+- 失败一律返回 `{"error": "<人可读文案>", "reason": "<枚举>"}`。枚举只允许：`bad-name`（400）、`name-exists`（409）、`no-face`（409）、`multiple-faces`（409）、`samples-missing`（409）、`analysis-disabled`（503）、`models-loading`（503）、`unavailable`（503）、`write-failed`（500）。
+- 失败路径不写名单文件；名单每次变更用整体替换，不在原 dict 上原地改。
+
 ## Testing Decisions
 
-- 单元与端点测试：`.venv\Scripts\python.exe -m pytest tests/test_face_store.py tests/test_recognition.py tests/test_app.py -q`
+- 单元与端点测试：`.venv\Scripts\python.exe -m pytest tests/test_face_store.py tests/test_recognition.py tests/test_face_api.py -q`
 - 全套回归：`.venv\Scripts\python.exe -m pytest`
 - 动态验收：`.venv\Scripts\python.exe run_server.py --no-camera --port 8099`，在真实浏览器里注册、删除、重启后复查，并截图。
 - 静态 UI 检查沿用 `tests/test_app.py` 的文本断言，不引入浏览器测试框架。
 - 可读性证据：1440×1000 与 390×844 截图，加一段把字号、对比度、间距与现有值对照的说明。
+- 集成测试票 `tests/test_integration_faces.py` 覆盖跨票接缝：注册→识别→重启→删除。
 
 ### Verification Seams
 
@@ -65,8 +74,9 @@ AS-7: 简洁与观感。去掉冗余框线与重复标签，分区不超过 6 �
 - 01 号票——设计规范（designer）：产出 `docs/DESIGN-dashboard.md`，含字号阶梯、颜色与对比度、间距、组件规则与参照图路径。
 - 02 号票——服务端注册与持久化（worker）：嵌入取样、名单文件、三个端点、CLI 参数、测试。
 - 03 号票——整页可读性与结构重做（worker，Blocked by: 01）：字号、对比度、间距、分组、去冗余；保留 ID 与操作。
-- 04 号票——注册控件与文档（worker，Blocked by: 02, 03）：面板控件、身份展示、样式衔接、文档与报告文案、静态测试。
+- 04 号票——注册控件与文档（worker，Blocked by: 01, 02, 03）：面板控件、身份展示、样式衔接、文档与报告文案、静态测试。
+- 05 号票——集成测试与探针收编（worker，Blocked by: 02, 03, 04）：跨票 happy path（注册→显示→重启→删除）与 `.scratch/face-recognition/verifier-probes/` 的持久探针收编。
 
 ## 完成条件
 
-审票 3×1 个 verifier；每票一次独立动态门；整体门 = 2×1 静态加一个独立集成动态；全部 AS 在范围内拿到新鲜证据并判 `VERIFIED` 后才可标 `resolved`。
+审票 3×1 个 verifier；每票一次独立动态门；整体门 = 2×1 静态加一个独立集成动态；05 号票的集成用例是整体门的证据来源；全部 AS 在范围内拿到新鲜证据并判 `VERIFIED` 后才可标 `resolved`。
