@@ -176,9 +176,9 @@ $ .venv\Scripts\python.exe %TEMP%\rvm04\warmprobe.py      # 服务器启动瞬�
 ## COMMITS
 
 - `71ef5f1` chore: 认领 04 注册控件（只暂存票文件）
-- 交付提交：见 `## 回执` 的哈希（`src/rvm/web/app.js`、`tests/test_app.py`、
-  `tests/test_report.py`、`README.md`、`docs/FEATURES.md`、`tools/build_report.py`、
-  票文件、本报告、`verifier-probes/04-*`）
+- `44fb4c9` feat: 04 注册控件接线与五态文案、文档同步（`src/rvm/web/app.js`、
+  `tests/test_app.py`、`tests/test_report.py`、`README.md`、`docs/FEATURES.md`、
+  `tools/build_report.py`、票文件、本报告、`verifier-probes/04-*`）
 
 ## IMPLEMENTED
 
@@ -194,4 +194,4 @@ $ .venv\Scripts\python.exe %TEMP%\rvm04\warmprobe.py      # 服务器启动瞬�
 
 | 票号 | 交票 或 受阻 | 提交哈希 | 报告路径 | 一句原因 |
 |---|---|---|---|---|
-| 04 | 交票 | PENDING_HASH | reports/04-r1-worker.md | 注册控件接线 + 五态文案 + 文档同步，全套 569 passed |
+| 04 | 交票 | 44fb4c9 | reports/04-r1-worker.md | 注册控件接线 + 五态文案 + 文档同步，全套 569 passed |
