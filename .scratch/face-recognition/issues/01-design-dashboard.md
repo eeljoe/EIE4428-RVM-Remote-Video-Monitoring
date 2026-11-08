@@ -99,6 +99,26 @@ Select-String -Path .scratch/face-recognition/design/v2/mock.html -Pattern '--fs
 - 新增 `docs/DESIGN-dashboard.md`,未触碰 `src/`、`tests/`、`README.md`。
 - r2 返工范围(只改 r1 门报告四处 + 1 Nit):§1 顶栏 `EIE4428` 拆出 `.06em` 行、§1 按钮与下拉单开 15/500 sans 档(原 15/400 行收窄到输入框与名单行)、§6 分区之间按档写清桌面 20 + 18 / ≤900px 8 + 16、§6 `max-height` 去掉「沿用现有实现」并给出 102 = 56 + 1 + 20 + 24 + 1 的新增规则依据、§7 峰值角标对比度改对 `--bg` 7.73:1;改动只在 `docs/DESIGN-dashboard.md`,§1 表增 2 行,故上面 AC→证据 里 §2 及以后的行号整体下移 2 行,其余章节未动。
 
+## 实现说明(r3)
+
+r3 攻坚返工：只改 r2 门报告 `01-r2-verifier.md` 的一条 [spec]（§2:46 `--panel` 用途）及同根残留，没有碰票面 AC、`Status:`、其他章节表述，没有碰 `src/`、`tests/`、`README.md`。
+
+### 门批评 → 改了哪里 → 源依据
+
+- §2:46 `--panel` 用途「输入框底、画面外分区底」→「输入框底(签字 mock 唯一用例;分区不铺底色,分区即页底 `--bg`)」。依据：`var(--panel)` 在 mock 全文仅 `mock.html:233` `.reg-row input` 一处;`.rail`/`.section` 无 `background`(mock:180-183),分区内容全部落在 `--bg`(body,mock:62)。该残留抄的是被 v2 替换的旧实现 `style.css:101-103` `.panel` 渐变底(亲验仍在)。
+- 同根残留一并清(按门的方式逐格核 §2/§7 色值用途,每格须指到 mock):
+  - §2:49 `--line`「对 --panel 1.31:1」→「对 --bg 1.37:1」:分区间线(mock:181)、名单行线(:255/:270)、折线基线(canvas JS :523)全部落在 `--bg`;`#252c30`/`#0b0d0e` 独立复算 1.373→1.37:1。
+  - §2:53 `--muted`、§2:61 `--alarm` 括注「(对 --panel …)」删除:两色在 mock 从不落 panel 面,按本文 §10「指不到的数值不写进本文」。
+  - §7:163 峰值虚线「叠加后 `#555c60`,对 --panel 2.72:1」→「画布透明、落在 `--bg` 上,叠加后约 `#53595c`,对 `--bg` 约 2.7:1」:`#spark` 无底色(mock:213,JS `clearRect`),该格与同节 §7:166「分区不铺 `--panel`」的直接矛盾消除。
+  - §2:57 `--accent-soft` 用途「ROI 底、选中视图底」→「强调色底纹(mock 调色板定义、画面未用)」:该 token 在 mock 仅 :38 定义、零用例;ROI 底实为字面量 `#5fd3c60f`(:127)、选中视图底是 `--accent` 实心(:172)。
+  - §2:62 `--alarm-soft` 用途收紧:录制按钮底是真用例(:174 `var(--alarm-soft)`),检测框底标注为 mock 同族字面量 `#f0715a1a`(:129)。
+- §2 规则新增一行(第 66 行)明示「分区与右栏不铺底…`--panel` 只给输入框」,与 §7:166 口径一致,从规则层封死同根再生。
+
+### 自攻枚举(门的方式)
+
+- `grep -n 'panel' docs/DESIGN-dashboard.md` 剩 8 处,逐处对 mock::41 表头指 :54/:68;:54 占位字真在 panel 输入上(mock:237);:68 硬底线 15.8:1=`#e9eef0`/`#101416` 实算(输入文字真在 panel,mock:233);:66/:107 输入框底;:166 与 §2 一致;:197 §9 变量定义。零处指不到。
+- 行数 226 ≤250;em dash(U+2014)计数 0;`git diff --stat` 仅 `docs/DESIGN-dashboard.md`(+8/-7,净 +1 行);未碰 `src/`、`tests/`、`README.md`、票面 AC。
+
 ## Verdicts
 2026-11-09 r1 REJECTED 0f46685 门判文档四处数值与签字 mock 不符（[spec]4 按产物缺陷改走 [impl] 返工 r2）
 2026-11-09 r2 REJECTED e38d141 门判 §2 --panel 用途与签字 mock 不符且与 §7 自相矛盾（[spec]1，同根残留）
