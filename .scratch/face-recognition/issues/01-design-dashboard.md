@@ -55,7 +55,7 @@ Blocked by:
 - 390px 顺序:§6 第 146-156 行(≤900 的单列顺序在第 149-150 行)写明 画面 → 控件 → 提示行 → FACE REGISTRY → 遥测四区;`mock-mobile.png`(390x844)自上而下可见的画面、两组控件、`Drag on the picture to watch only that area.`、`FACE REGISTRY`,与文档逐项对上。
 - 五态文案与配色:§8 第 170-189 行,五态表在第 174-180 行,逐字文案 + 色值(成功 `#6ecb8f`、无脸与多脸 `#f0715a`、重名 `#e3b45c`、分析关闭 `#9aa5aa`),第 182-187 行另补空名单 / 预热 / 录制中三态。
 - 与参照图 v2 一致、三份文件可打开:`mock.html` 47986 字节全文读过(样式与结构均取自它),`mock-desktop.png` 1440x1000 / 665562 字节、`mock-mobile.png` 390x844 / 174347 字节,两张都用读图工具打开看过并做过裁切放大核对。
-- 不改 `src/`、`tests/`、`README.md`:本次提交只含 `docs/DESIGN-dashboard.md` 与本票文件,`git status` 无其他改动。
+- 不改 `src/`、`tests/`、`README.md`:本票提交 `git show --stat` 只有 2 个文件(`docs/DESIGN-dashboard.md`、本票)。工作树里另有并行 worker 的改动(`src/rvm/server/app.py`、`src/rvm/server/session.py`、`tests/test_face_api.py`)属于其他票,不是本票产物,我没有暂存也没有改它们。
 
 ### 假设
 
