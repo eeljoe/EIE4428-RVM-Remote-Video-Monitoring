@@ -159,3 +159,4 @@ GET 返回（通常几十毫秒，下一帧遥测也会纠）。攻击方式：�
 ## Verdicts
 
 - 2026-11-09 r1 VERIFIED f13f0dc — 全部 AC 在真实浏览器里拿到本轮新鲜证据；两条 Important 缺陷（README 一句与实现相反的描述、loadNames 晚到 GET 覆盖新名单的 stale-write）均不阻断票面判据。｜报告：.scratch/face-recognition/reports/04-r1-verifier.md｜模型路线：未标注（派发未带 --model）
+- 2026-11-09 r1 VERIFIED f13f0dc — 全部 AC 在真实浏览器里拿到本轮新鲜证据；两条 Important 缺陷（README 一句与实现相反的描述、loadNames 晚到 GET 覆盖新名单的 stale-write）均不阻断票面判据。｜报告：.scratch/face-recognition/reports/04-r1-verifier.md｜模型路线：swe-2-high
