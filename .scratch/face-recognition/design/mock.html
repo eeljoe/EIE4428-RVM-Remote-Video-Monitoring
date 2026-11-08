@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RVM &middot; Remote Video Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%23080c0e'/%3E%3Cpath d='M7 8h18v16H7z' fill='none' stroke='%2363dfd0' stroke-width='2'/%3E%3Cpath d='M11 12h5v8h-5z' fill='%2363dfd0'/%3E%3C/svg%3E" />
+<style>
+/* ---------------------------------------------------------------------------
+ * Reference mock for the face-registration feature. The block below this
+ * comment is copied unchanged from src/rvm/web/style.css so the mock reads as
+ * the real page; the additions are marked "face registry" further down.
+ * No remote fonts or assets: everything here is a system font or inline data.
+ * ------------------------------------------------------------------------- */
+:root {
+  --bg: #080c0e;
+  --panel: #10171b;
+  --raised: #182329;
+  --line: #293a40;
+  --text: #eaf3ee;
+  --muted: #8d9d98;
+  --accent: #63dfd0;
+  --alarm: #ff654d;
+  --ok: #83e377;
+  --amber: #f0c36a;
+  --accent-soft: #63dfd012;
+  --alarm-soft: #ff654d12;
+  --control-line: #3a776f;
+  --display: "Bahnschrift", "DIN Alternate", "Franklin Gothic Medium", sans-serif;
+  --mono: "Cascadia Mono", "IBM Plex Mono", Consolas, monospace;
+}
+
+* { box-sizing: border-box; }
+
+/* added: the app sets color-scheme on its controls but never on the page, so
+ * the window scrollbar was painted in the light system style. Same thin style
+ * as the telemetry rail so the two scrollbars look like one system. */
+:root { color-scheme: dark; }
+html { scrollbar-width: thin; scrollbar-color: #3a5158 transparent; }
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at 12% -10%, #63dfd014, transparent 34rem), repeating-linear-gradient(0deg, #ffffff03 0 1px, transparent 1px 32px), var(--bg);
+  color: var(--text);
+  font: 14px/1.5 var(--display);
+  letter-spacing: .02em;
+}
+
+.bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 18px;
+  padding: 14px 22px; border-bottom: 1px solid var(--line); border-top: 2px solid var(--accent);
+  background: #0b1114f2;
+}
+.bar h1 { display: flex; align-items: baseline; gap: 14px; margin: 0; }
+.wordmark { color: var(--accent); font-size: 27px; font-weight: 700; letter-spacing: .16em; line-height: 1; }
+.bar .sub { color: var(--muted); font: 500 10px/1.3 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+.course { color: var(--text); }
+.bar-right { display: flex; align-items: center; gap: 18px; }
+.unit-label { color: var(--muted); font: 10px var(--mono); letter-spacing: .12em; }
+
+.status-pill {
+  display: flex; align-items: center; gap: 8px; padding: 6px 9px;
+  border: 1px solid var(--line); color: var(--text); font: 10px var(--mono); letter-spacing: .09em; text-transform: uppercase;
+}
+.status-pill::before { content: "LINK"; color: var(--muted); }
+.dot { width: 7px; height: 7px; border-radius: 1px; background: var(--muted); }
+.dot.live { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+.dot.down { background: var(--alarm); box-shadow: 0 0 10px var(--alarm); }
+
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 310px; gap: 20px; padding: 22px; align-items: start; max-width: 1700px; margin: auto; }
+.viewer { min-width: 0; animation: reveal .35s ease-out both; }
+
+.stage {
+  position: relative; background: #020404; border: 1px solid #3a5158; border-radius: 3px;
+  overflow: hidden; aspect-ratio: 4 / 3; isolation: isolate; box-shadow: 0 22px 70px #0009, 0 0 0 4px #63dfd008;
+}
+.stage::before {
+  content: attr(data-channel); position: absolute; top: 14px; left: 14px; z-index: 2;
+  padding: 4px 7px; background: #000a; border-left: 2px solid var(--accent); color: #eafffa;
+  font: 10px var(--mono); letter-spacing: .12em; pointer-events: none;
+}
+.stage::after { content: ""; position: absolute; inset: 9px; z-index: 2; border: 1px solid #63dfd02b; pointer-events: none; }
+
+.stage img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+.alarm {
+  position: absolute; inset: 0; z-index: 5; display: none; align-items: center; justify-content: center;
+  background: repeating-linear-gradient(135deg, var(--alarm-soft) 0 14px, transparent 14px 28px);
+  border: 3px solid var(--alarm); color: #ff9a86; font: 700 20px var(--mono);
+  letter-spacing: .2em; text-align: center; text-shadow: 0 2px 14px #000; pointer-events: none;
+}
+
+.overlay {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 3;
+  display: flex; justify-content: space-between; gap: 12px; padding: 26px 14px 12px;
+  background: linear-gradient(transparent, #000d); font: 10px var(--mono); color: #d8e9e3; text-transform: uppercase;
+}
+
+.controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: stretch; margin-top: 14px; }
+.control-cluster { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); }
+.controls label { color: var(--muted); font: 10px var(--mono); text-transform: uppercase; display: flex; align-items: center; gap: 7px; }
+
+select, button {
+  background: var(--raised); color: var(--text); border: 1px solid var(--line); border-radius: 2px;
+  padding: 7px 11px; font: 11px var(--mono); cursor: pointer; color-scheme: dark;
+}
+button { text-transform: uppercase; letter-spacing: .04em; transition: border-color .16s, color .16s, transform .16s, background-color .16s; }
+button:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+button.active { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+#apply { border-color: var(--control-line); }
+select:focus-visible, button:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.panel {
+  background: linear-gradient(145deg, var(--panel), #0b1114); border: 1px solid var(--line);
+  border-radius: 3px; padding: 14px 16px; counter-reset: section; box-shadow: 0 16px 40px #0005; animation: reveal .35s .08s ease-out both;
+}
+.panel h2 {
+  display: flex; align-items: center; gap: 8px; margin: 18px 0 10px;
+  font: 600 10px var(--mono); text-transform: uppercase; letter-spacing: .14em; color: var(--muted);
+}
+.panel h2::before { counter-increment: section; content: "0" counter(section); color: var(--accent); }
+.panel h2:first-child { margin-top: 0; }
+
+.metrics { margin: 0; font-size: 13px; }
+.metrics > div {
+  display: flex; justify-content: space-between; gap: 10px;
+  padding: 5px 0; border-bottom: 1px dashed rgba(255,255,255,.05);
+}
+.metrics > div:last-child { border-bottom: none; }
+.metrics dt { color: var(--muted); }
+.metrics dd { margin: 0; font-family: var(--mono); font-size: 12px; font-variant-numeric: tabular-nums; }
+#m-res, #m-fps, #m-bitrate { color: var(--accent); }
+#m-rec { color: var(--amber); }
+
+#spark { width: 100%; height: 60px; display: block; background: repeating-linear-gradient(0deg, transparent 0 19px, #ffffff08 19px 20px); }
+
+.roi, .bbox {
+  position: absolute; z-index: 4; border: 1px dashed var(--accent);
+  background: var(--accent-soft); box-shadow: 0 0 0 1px #0008; pointer-events: none;
+}
+.bbox { border-color: var(--alarm); background: #ff654d18; }
+
+.tracks { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.track-dot {
+  position: absolute; width: 4px; height: 4px; margin: -2px 0 0 -2px;
+  border-radius: 50%; background: var(--accent); box-shadow: 0 0 4px #000;
+}
+.track-tag {
+  position: absolute; transform: translate(-50%, -140%); padding: 1px 5px;
+  border: 1px solid var(--control-line); background: #000b;
+  color: var(--accent); font: 700 9px var(--mono); letter-spacing: .08em;
+}
+
+.hint { display: flex; align-items: center; gap: 10px; margin: 10px 0 0; color: var(--muted); font: 11px var(--mono); }
+.hint-key { flex: none; padding: 3px 6px; border: 1px solid var(--control-line); color: var(--accent); font-size: 9px; letter-spacing: .08em; }
+
+.clips { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.clips li { border-bottom: 1px dashed rgba(255, 255, 255, .06); }
+.clips li:last-child { border-bottom: none; }
+.clips li.muted { color: var(--muted); padding: 6px 0; }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; padding: 16px; }
+  .unit-label { display: none; }
+}
+
+@media (max-width: 560px) {
+  .bar { align-items: flex-start; padding: 12px 14px; }
+  .bar h1 { gap: 9px; }
+  .bar .sub { max-width: 150px; }
+  .wordmark { font-size: 23px; }
+  .layout { padding: 10px; gap: 12px; }
+  .control-cluster { width: 100%; }
+  select, button { min-height: 40px; }
+  .controls label { flex: 1 1 160px; justify-content: space-between; }
+  .overlay { font-size: 8px; padding: 22px 10px 9px; }
+  .alarm { font-size: 14px; }
+  .hint { align-items: flex-start; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * face registry (new)
+ *
+ * One block, inside the telemetry rail, directly under the Analysis readouts:
+ * the name you type belongs to whatever the picture is showing at that moment,
+ * so the field and the Face IDs line stay in the same eyeline.
+ *
+ * Shape lock: 2px radius on the field and both buttons, matching the existing
+ * `select, button` rule. The commit button is the only solid accent fill on the
+ * page; everything else in the rail stays raised-grey.
+ * ------------------------------------------------------------------------- */
+
+/* The rail scrolls on its own instead of stretching the page: the picture keeps
+ * its full height while a new section appears under the readouts. */
+@media (min-width: 901px) {
+  .panel {
+    max-height: calc(100vh - 102px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: #3a5158 transparent;
+  }
+}
+
+.rail-count { margin-left: auto; color: var(--muted); font: 10px var(--mono); letter-spacing: .08em; }
+
+.reg-label {
+  display: block; margin: 0 0 6px; color: var(--muted);
+  font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase;
+}
+
+.reg-row { display: flex; gap: 8px; align-items: stretch; }
+.reg-row input {
+  flex: 1 1 auto; min-width: 0;
+  background: var(--raised); color: var(--text);
+  border: 1px solid var(--line); border-radius: 2px; padding: 7px 9px;
+  font: 11px var(--mono); letter-spacing: .02em; color-scheme: dark;
+}
+.reg-row input::placeholder { color: var(--muted); opacity: 1; }
+.reg-row input:hover { border-color: #3d545b; }
+.reg-row input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-color: var(--accent); }
+
+button.commit {
+  flex: none; background: var(--accent); border-color: var(--accent); color: #06100e; font-weight: 700;
+}
+button.commit:hover { background: #7ceadc; border-color: #7ceadc; color: #06100e; }
+button.commit:active { transform: translateY(1px); }
+button.commit:disabled { opacity: .42; cursor: not-allowed; transform: none; }
+
+/* Two results of the same action: the copy that confirms, the copy that asks
+ * the operator to try again. Colour carries the state, the time stays muted. */
+.reg-log { list-style: none; margin: 9px 0 0; padding: 0; font: 10.5px/1.5 var(--mono); }
+.reg-log li { display: flex; gap: 8px; }
+.reg-log .t { flex: none; color: var(--muted); font-variant-numeric: tabular-nums; }
+.reg-log li.log-ok { color: var(--ok); }
+.reg-log li.log-err { color: var(--alarm); }
+
+.reg-list { list-style: none; margin: 11px 0 0; padding: 0; border-top: 1px solid var(--line); }
+.reg-list li {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 5px 0; font-size: 13px;
+  border-bottom: 1px dashed rgba(255,255,255,.05);
+}
+.reg-list li:last-child { border-bottom: none; }
+.reg-list li:hover { background: rgba(255,255,255,.025); }
+.reg-list .reg-empty { display: block; color: var(--muted); font: 10.5px/1.5 var(--mono); padding: 8px 0; }
+
+.forget {
+  flex: none; width: 24px; height: 24px; padding: 0; display: grid; place-items: center;
+  background: transparent; color: var(--muted); font: 13px/1 var(--mono);
+}
+.forget:hover { border-color: var(--alarm); color: var(--alarm); transform: none; }
+.forget:active { transform: translateY(1px); }
+
+@media (max-width: 560px) {
+  .reg-row { flex-direction: column; }
+  .reg-row .commit { width: 100%; }
+  .forget { width: 40px; }
+  .reg-list li { padding: 8px 0; }
+  .reg-log { font-size: 11px; }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <h1><span class="wordmark">RVM</span><span class="sub">Remote Video Monitor <span class="course">EIE4428</span></span></h1>
+  <div class="bar-right">
+    <span class="unit-label">FIELD MONITOR / 01</span>
+    <div class="status-pill" id="conn" role="status" aria-live="polite"><span class="dot live"></span><span id="conn-text">live</span></div>
+  </div>
+</header>
+
+<main class="layout">
+  <section class="viewer" aria-label="Live monitor and controls">
+    <div class="stage" id="stage" data-channel="CAM 01">
+      <img id="stream" src="data:image/jpeg;base64,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" alt="Live camera feed" aria-describedby="zone-help" />
+      <div class="tracks" id="tracks" aria-hidden="true"></div>
+      <div class="overlay" id="overlay-bottom">
+        <span id="src-label">source: test pattern</span>
+        <span id="view-label">camera</span>
+        <span id="time-label">21:42:41</span>
+      </div>
+    </div>
+
+    <div class="controls">
+      <div class="control-cluster" role="group" aria-label="Stream configuration">
+      <label>Target bitrate
+        <select id="bitrate">
+          <option value="200000">200 kbps</option>
+          <option value="600000">600 kbps</option>
+          <option value="1200000" selected>1.2 Mbps</option>
+          <option value="3000000">3 Mbps</option>
+          <option value="6000000">6 Mbps</option>
+        </select>
+      </label>
+      <button id="apply">Apply</button>
+      <label>Motion sensitivity
+        <select id="sensitivity">
+          <option value="low">low</option>
+          <option value="medium" selected>medium</option>
+          <option value="high">high</option>
+        </select>
+      </label>
+      <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
+      </div>
+      <div class="control-cluster" role="group" aria-label="Picture views">
+      <button id="view-source" class="toggle active">Camera</button>
+      <button id="view-decoded" class="toggle">Decoded (RVM1)</button>
+      </div>
+      <div class="control-cluster" role="group" aria-label="Capture and export">
+      <button id="snapshot">Save snapshot</button>
+      <button id="record">Start recording</button>
+      <button id="metrics">Export metrics</button>
+      </div>
+    </div>
+    <p class="hint" id="zone-help">
+      <span class="hint-key">DRAG TO ZONE</span>
+      <span>Watch only that area. Movement elsewhere stops raising the alarm.</span>
+    </p>
+  </section>
+
+  <aside class="panel" id="panel" aria-label="Live telemetry and recorded clips">
+    <h2>Stream</h2>
+    <dl class="metrics">
+      <div><dt>Resolution</dt><dd id="m-res">640&times;480</dd></div>
+      <div><dt>Frame rate</dt><dd id="m-fps">24.6 fps</dd></div>
+      <div><dt>Video bitrate</dt><dd id="m-bitrate">1.18 Mbps</dd></div>
+      <div><dt>QP</dt><dd id="m-qp">26</dd></div>
+      <div><dt>PSNR</dt><dd id="m-psnr">31.4 dB</dd></div>
+      <div><dt>Codec</dt><dd id="m-codec">RVM1 &middot; H.264-style hybrid</dd></div>
+    </dl>
+
+    <h2>Transport</h2>
+    <dl class="metrics">
+      <div><dt>Packets sent</dt><dd id="m-pkts">18493</dd></div>
+      <div><dt>Pictures</dt><dd id="m-pics">4271</dd></div>
+      <div><dt>Packet loss</dt><dd id="m-loss">0.42 %</dd></div>
+      <div><dt>Jitter</dt><dd id="m-jitter">3.17 ms</dd></div>
+      <div><dt>Viewers</dt><dd id="m-clients">1</dd></div>
+    </dl>
+
+    <h2 id="analysis">Analysis</h2>
+    <dl class="metrics">
+      <div><dt>Motion</dt><dd id="m-motion">6.84 %</dd></div>
+      <div><dt>Detection zone</dt><dd id="m-roi">whole picture</dd></div>
+      <div><dt>Faces</dt><dd id="m-faces">1</dd></div>
+      <div><dt>Tracked objects</dt><dd id="m-tracks">T1</dd></div>
+      <div><dt>Gestures</dt><dd id="m-gestures">no hand</dd></div>
+      <div><dt>Expressions</dt><dd id="m-emotions">no face</dd></div>
+      <div><dt>Face IDs</dt><dd id="m-identities">Alice Ng 0.82</dd></div>
+      <div><dt>Audio events</dt><dd id="m-audio">none</dd></div>
+      <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
+    </dl>
+
+    <!-- States the block has to cover, shown here one at a time in the log:
+         ok      "saved as <name>"
+         error   "no face in frame, hold still"
+         busy    same line with the text "working", button gets .commit:disabled
+         empty   the list becomes <li class="reg-empty">no names saved yet</li> -->
+    <h2>Face registry<span class="rail-count">2 saved</span></h2>
+    <label class="reg-label" for="face-name">Name for this face</label>
+    <div class="reg-row">
+      <input id="face-name" name="face-name" type="text" placeholder="e.g. Alice Ng" autocomplete="off" spellcheck="false" />
+      <button type="button" class="commit">Remember face</button>
+    </div>
+    <ul class="reg-log" role="status" aria-live="polite">
+      <li class="log-ok"><span class="t">21:41:08</span><span>saved as Alice Ng</span></li>
+      <li class="log-err"><span class="t">21:42:31</span><span>no face in frame, hold still</span></li>
+    </ul>
+    <ul class="reg-list">
+      <li><span>Alice Ng</span><button type="button" class="forget" aria-label="Forget Alice Ng" title="Forget Alice Ng">&times;</button></li>
+      <li><span>Marcus Foo</span><button type="button" class="forget" aria-label="Forget Marcus Foo" title="Forget Marcus Foo">&times;</button></li>
+    </ul>
+
+    <h2>Bitrate</h2>
+    <canvas id="spark" width="260" height="60" role="img" aria-label="Recent video bitrate history"></canvas>
+
+    <h2>Clips</h2>
+    <ul class="clips" id="clips">
+      <li class="muted">No recording yet.</li>
+    </ul>
+  </aside>
+</main>
+
+<script>
+/* Static mock. The bitrate sparkline is drawn from fixed sample values because
+ * the real page draws it from the socket. "#faces" parks the rail at its end so
+ * a capture taken at a fixed viewport height shows the whole new block. */
+(function () {
+  /* #faces parks the rail at its end (desktop); #analysis brings the Analysis
+   * section to the top of the page (mobile). Both retry a few times because the
+   * first layout pass can still move content under the anchor. */
+  var tries = 0;
+  function park() {
+    var panel = document.getElementById("panel");
+    if (location.hash === "#faces" && panel) panel.scrollTop = panel.scrollHeight;
+    if (++tries < 8) setTimeout(park, 120);
+  }
+  if (location.hash === "#faces") window.addEventListener("load", park);
+
+  var jumps = 0;
+  function jump() {
+    var analysis = document.getElementById("analysis");
+    if (analysis) {
+      window.scrollTo(0, Math.max(0, analysis.getBoundingClientRect().top + window.scrollY - 10));
+    }
+    if (++jumps < 10) setTimeout(jump, 100);
+  }
+  if (location.hash === "#analysis") window.addEventListener("load", jump);
+
+  var canvas = document.getElementById("spark");
+  if (!canvas) return;
+  var ctx = canvas.getContext("2d");
+  var values = [0.86, 0.94, 1.02, 1.11, 1.06, 0.98, 1.14, 1.22, 1.19, 1.09,
+                1.01, 1.12, 1.24, 1.31, 1.26, 1.16, 1.08, 1.02, 0.97, 1.05,
+                1.15, 1.23, 1.28, 1.21, 1.12, 1.04, 0.99, 1.07, 1.17, 1.26,
+                1.34, 1.29, 1.18, 1.1, 1.03, 0.95, 1.06, 1.16, 1.22, 1.3,
+                1.27, 1.19, 1.11, 1.05, 1.13, 1.21, 1.25, 1.18];
+  var scale = Math.max.apply(null, values);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.beginPath();
+  values.forEach(function (v, i) {
+    var x = (i / (values.length - 1)) * canvas.width;
+    var y = canvas.height - (v / scale) * (canvas.height - 6) - 3;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = "#63dfd0";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+})();
+</script>
+</body>
+</html>
