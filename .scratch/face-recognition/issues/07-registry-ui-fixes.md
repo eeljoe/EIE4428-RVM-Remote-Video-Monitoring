@@ -1,6 +1,6 @@
 # 07 — 收口 04 门留下的两处缺陷
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 04
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/07-registry-ui-fixes-selfcheck.md`）
 **UI:** yes
