@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RVM &middot; Remote Video Monitor</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' fill='%230b0d0e'/%3E%3Cpath d='M7 8h18v16H7z' fill='none' stroke='%235fd3c6' stroke-width='2'/%3E%3Cpath d='M11 12h5v8h-5z' fill='%235fd3c6'/%3E%3C/svg%3E" />
+<style>
+/* ===========================================================================
+ * RVM operator page, second reference mock.
+ *
+ * Readability first. The type is 13px labels and 15px values everywhere, the
+ * only boxed surfaces are the picture and the inputs, and every group is
+ * separated by whitespace instead of frames. No remote fonts or assets: the
+ * two photographs below are base64, everything else is a system font.
+ *
+ * Layout at 1440x1000: picture + controls on the left, telemetry rail 460px on
+ * the right, whole page inside the viewport with no scrolling. At 900px and
+ * below it is one column, picture, face registry, controls, then telemetry.
+ * =========================================================================== */
+
+:root {
+  /* neutral, near black, no pure #000 or #fff */
+  --bg: #0b0d0e;
+  --panel: #101416;
+  --raised: #191f22;
+  --raised-hover: #212a2e;
+  --line: #252c30;
+  --line-strong: #39444a;
+  --text: #e9eef0;
+  --text-2: #c3ccd0;
+  --muted: #9aa5aa;          /* 7.7:1 on --bg, 7.4:1 on --panel */
+  --placeholder: #7d888d;    /* 4.6:1 on --panel */
+
+  /* one accent, saturation 57% */
+  --accent: #5fd3c6;
+  --accent-hover: #78ded2;
+  --accent-soft: #5fd3c61f;
+  --on-accent: #072521;
+
+  /* semantics */
+  --ok: #6ecb8f;
+  --warn: #e3b45c;
+  --alarm: #f0715a;
+  --alarm-soft: #f0715a1f;
+
+  /* type ladder: labels 13, body and values 15, title 18 */
+  --fs-label: 13px;
+  --fs-body: 15px;
+  --fs-title: 18px;
+
+  --sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --mono: "Cascadia Mono", "Consolas", ui-monospace, "SF Mono", monospace;
+  --radius: 4px;
+}
+
+* { box-sizing: border-box; }
+:root { color-scheme: dark; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: var(--fs-body)/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---- header ------------------------------------------------------------- */
+
+.bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: 56px; padding: 0 24px; border-bottom: 1px solid var(--line);
+}
+.brand { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.mark { color: var(--accent); font: 700 var(--fs-title)/1.5 var(--sans); letter-spacing: .14em; }
+.name { color: var(--text-2); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.course { color: var(--muted); font: 400 var(--fs-label)/1.5 var(--mono); letter-spacing: .06em; }
+
+.link {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  font: 600 var(--fs-label)/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase;
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.live { background: var(--ok); }
+.dot.down { background: var(--alarm); }
+
+/* ---- shell -------------------------------------------------------------- */
+
+.layout {
+  display: grid; grid-template-columns: minmax(0, 1fr) 460px;
+  gap: 20px 28px; align-items: start;
+  max-width: 1680px; margin: 0 auto; padding: 20px 24px 24px;
+}
+.viewer { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+
+/* ---- picture ------------------------------------------------------------ */
+
+/* The bezel is a ring outside the box, so the frame inside is exactly the
+ * stage and every overlay percentage lines up with the stream. */
+.stage {
+  position: relative; aspect-ratio: 4 / 3; overflow: hidden;
+  background: #000; border-radius: var(--radius);
+  box-shadow: 0 0 0 1px #2b3439, 0 20px 48px #00000073;
+}
+.stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
+
+/* Monitor furniture: where the picture comes from on the left, the clock on the
+ * right, both on a scrim so they stay legible over any frame. */
+.osd {
+  position: absolute; top: 10px; z-index: 3;
+  padding: 3px 8px; border-radius: 3px; background: #000000a8;
+  color: #dbe6e4; font: 600 12px/1.5 var(--mono); letter-spacing: .06em; text-transform: uppercase;
+}
+.osd.left { left: 10px; }
+.osd.right { right: 10px; font-variant-numeric: tabular-nums; }
+
+/* The current view is carried by the pressed side of the toggle; this mirror is
+ * only for assistive tech, so the state is announced without a second label. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* The zone the operator dragged out, drawn in percentages of the picture. */
+.roi {
+  position: absolute; z-index: 2; pointer-events: none;
+  border: 1px dashed #5fd3c6cc; border-radius: 2px; background: #5fd3c60f;
+}
+.bbox { position: absolute; z-index: 2; pointer-events: none; border: 2px solid var(--alarm); background: #f0715a1a; }
+.tracks { position: absolute; inset: 0; z-index: 2; pointer-events: none; }
+.track-dot { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: var(--accent); }
+.track-tag {
+  position: absolute; transform: translate(-50%, -150%); padding: 1px 6px; border-radius: 2px;
+  background: #000000b8; color: var(--accent); font: 700 12px/1.5 var(--mono);
+}
+.alarm {
+  position: absolute; inset: 0; z-index: 4; display: none; align-items: center; justify-content: center;
+  border: 3px solid var(--alarm); background: #f0715a14;
+  color: #ffb3a6; font: 700 20px/1.5 var(--mono); letter-spacing: .18em; text-align: center;
+}
+.alarm.on { display: flex; }
+
+/* ---- controls ----------------------------------------------------------- */
+
+.controls { display: flex; flex-direction: column; gap: 20px; }
+.controls .row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 40px; }
+.field { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.field > label { color: var(--muted); font-size: var(--fs-label); line-height: 1.5; white-space: nowrap; }
+
+select, button {
+  font: 500 var(--fs-body)/1.5 var(--sans);
+  color: var(--text); background: var(--raised);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  padding: 8px 12px; min-height: 40px;
+}
+select {
+  appearance: none; color-scheme: dark; padding-right: 34px; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa5aa' stroke-width='1.6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 12px center;
+}
+button { cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
+button:hover { background: var(--raised-hover); border-color: #4d5a61; }
+button:active { transform: translateY(1px); }
+select:hover { background-color: var(--raised-hover); }
+select:focus-visible, button:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 2px;
+}
+
+/* Which picture you are looking at: the pressed side is a solid accent fill,
+ * so the state reads without a second label elsewhere on the page. */
+.seg { padding-inline: 16px; }
+.seg.active { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.seg.active:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+#record.active { border-color: var(--alarm); color: var(--alarm); background: var(--alarm-soft); }
+
+.hint { margin: 0; color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+
+/* ---- telemetry rail ----------------------------------------------------- */
+
+.rail { display: flex; flex-direction: column; min-width: 0; }
+.section + .section { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+
+.section h2 {
+  display: flex; align-items: baseline; gap: 12px; margin: 0 0 6px; color: var(--text-2);
+  font: 600 var(--fs-label)/1.5 var(--sans); letter-spacing: .08em; text-transform: uppercase;
+}
+/* A constant that belongs to the section, not a live number: it rides on the
+ * heading instead of taking a row of its own. */
+.section h2 .meta {
+  margin-left: auto; text-transform: none; letter-spacing: .02em;
+  font: 400 var(--fs-label)/1.5 var(--mono); color: var(--muted); white-space: nowrap;
+}
+
+.readouts { display: grid; grid-template-columns: 1fr 1fr; gap: 0 32px; margin: 0; }
+/* Fixed label column, value immediately after it: the 10px label-to-value gap
+ * is narrower than the 32px gutter between the two columns, so a readout always
+ * binds to its own label and never reads as the next one's.
+ */
+.readouts > div {
+  display: flex; align-items: baseline; gap: 10px;
+  min-width: 0; padding: 3px 0;
+}
+.readouts .wide { grid-column: 1 / -1; }
+.readouts dt { flex: 0 0 108px; color: var(--muted); font-size: var(--fs-label); line-height: 1.5; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.readouts dd {
+  margin: 0; color: var(--text); min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 var(--fs-body)/1.5 var(--mono); font-variant-numeric: tabular-nums;
+}
+#m-rec { color: var(--muted); }
+#m-identities { color: var(--text); }
+
+#spark { display: block; width: 100%; height: 30px; margin-top: 4px; }
+
+/* Magnitude tag for the trace. The canvas normalises to the maximum of its own
+ * window, so the top of the plot is a real number worth printing; the tag rides
+ * the readout row it belongs to instead of taking a line or a legend box.
+ * Same mono as the values, one step quieter: 12px against their 15px, muted
+ * against their bright, so it names the scale without competing with the data. */
+.peak {
+  margin-left: auto; flex: none; white-space: nowrap;
+  color: var(--muted); font: 400 12px/1.5 var(--mono);
+  letter-spacing: .02em; font-variant-numeric: tabular-nums;
+}
+
+/* ---- face registry ------------------------------------------------------ */
+
+.reg-label { display: block; margin: 0 0 8px; color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+.reg-row { display: flex; gap: 10px; }
+.reg-row input {
+  flex: 1 1 auto; min-width: 0;
+  padding: 8px 12px; min-height: 40px;
+  background: var(--panel); color: var(--text);
+  border: 1px solid var(--line-strong); border-radius: var(--radius);
+  font: 400 var(--fs-body)/1.5 var(--sans);
+}
+.reg-row input::placeholder { color: var(--placeholder); opacity: 1; }
+
+button.primary {
+  flex: none; padding: 8px 14px; font-size: var(--fs-label); font-weight: 700; letter-spacing: .04em;
+  background: var(--accent); border-color: var(--accent); color: var(--on-accent);
+}
+button.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--on-accent); }
+button.primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+
+/* One line, two outcomes: green when the face was stored, red when it was not
+ * (`.status.err` + the copy "No face in frame, hold still"). */
+.status { display: flex; align-items: center; gap: 8px; margin: 8px 0 0; font-size: var(--fs-label); line-height: 1.5; }
+.status.ok { color: var(--ok); }
+.status.err { color: var(--alarm); }
+.status::before { content: ""; flex: none; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+
+.names { list-style: none; margin: 10px 0 0; padding: 0; }
+.names li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 5px 0; }
+.names li + li { border-top: 1px solid var(--line); }
+.names .who { font-size: var(--fs-body); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.names .empty { color: var(--muted); font-size: var(--fs-label); padding: 8px 0; }
+
+.x {
+  flex: none; width: 32px; height: 32px; min-height: 0; padding: 0;
+  display: grid; place-items: center;
+  background: transparent; border-color: var(--line); color: var(--muted);
+  font: 400 16px/1.5 var(--mono);
+}
+.x:hover { background: var(--alarm-soft); border-color: var(--alarm); color: var(--alarm); }
+
+/* ---- clips -------------------------------------------------------------- */
+
+.clips { list-style: none; margin: 0; padding: 0; }
+.clips li + li { border-top: 1px solid var(--line); }
+.clips a { display: flex; align-items: center; gap: 12px; padding: 6px 0; color: var(--text); text-decoration: none; }
+.clips a:hover .clip-name { color: var(--accent); }
+.clips img { flex: none; width: 56px; height: 42px; object-fit: cover; border-radius: 3px; background: #000; }
+.clips .clip-meta { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+.clips .clip-name { font: 500 var(--fs-body)/1.5 var(--mono); font-variant-numeric: tabular-nums; }
+.clips .clip-sub { color: var(--muted); font-size: var(--fs-label); line-height: 1.5; }
+.clips .empty { color: var(--muted); font-size: var(--fs-label); padding: 8px 0; }
+
+/* ---- narrow: one column ------------------------------------------------- */
+
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: 1fr; row-gap: 16px; padding: 16px; }
+  /* The rail and the viewer stop being boxes so their children can be
+   * reordered into one column: picture, face registry, controls, telemetry. */
+  .viewer, .rail { display: contents; }
+  .stage { order: 1; }
+  .controls { order: 2; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .hint { order: 3; }
+  .section { order: 5; }
+  /* declared after .section on purpose: the face controls are pulled above the
+   * readouts so naming a face does not require scrolling past the telemetry. */
+  .registry { order: 4; }
+  .section + .section { margin-top: 8px; padding-top: 16px; }
+
+  .controls .row { display: contents; }
+  .field { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; }
+  .field select { width: 100%; min-width: 0; }
+  /* Camera / Decoded and the three actions need their own column counts. */
+  .field.views { grid-template-columns: 1fr 1fr; }
+  .field.actions { grid-template-columns: 1fr 1fr; }
+  .field.actions button:last-child { grid-column: 1 / -1; }
+  .seg { width: 100%; }
+  .names .x { width: 40px; height: 40px; }
+}
+
+@media (max-width: 560px) {
+  :root { --fs-label: 14px; }
+  .bar { height: 52px; padding: 0 16px; gap: 12px; }
+  .name { display: none; }
+  select, button { font-size: 15px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+<header class="bar">
+  <div class="brand">
+    <span class="mark">RVM</span>
+    <span class="name">Remote Video Monitor</span>
+    <span class="course">EIE4428</span>
+  </div>
+  <div class="link" id="conn" role="status" aria-live="polite"><span class="dot live"></span><span id="conn-text">live</span></div>
+</header>
+
+<main class="layout">
+  <section class="viewer" aria-label="Live monitor and controls">
+    <div class="stage" id="stage">
+      <img id="stream" src="data:image/jpeg;base64,{{FRAME}}" alt="Live camera feed" aria-describedby="zone-help" />
+      <div class="roi" id="roi"></div>
+      <div class="bbox" id="bbox" hidden></div>
+      <div class="tracks" id="tracks" aria-hidden="true"></div>
+      <div class="alarm" id="alarm" role="alert" aria-live="assertive">MOTION DETECTED</div>
+      <span class="osd left" id="src-label">source: camera</span>
+      <span class="osd right" id="time-label">21:42:41</span>
+    </div>
+
+    <div class="controls">
+      <div class="row">
+        <div class="field">
+          <label for="bitrate">Target bitrate</label>
+          <select id="bitrate">
+            <option value="200000">200 kbps</option>
+            <option value="600000">600 kbps</option>
+            <option value="1200000" selected>1.2 Mbps</option>
+            <option value="3000000">3 Mbps</option>
+            <option value="6000000">6 Mbps</option>
+          </select>
+          <button id="apply">Apply</button>
+        </div>
+        <div class="field">
+          <label for="sensitivity">Motion sensitivity</label>
+          <select id="sensitivity">
+            <option value="low">low</option>
+            <option value="medium" selected>medium</option>
+            <option value="high">high</option>
+          </select>
+          <button id="clear-roi" title="Watch the whole picture again">Clear zone</button>
+        </div>
+      </div>
+      <div class="row">
+        <div class="field views">
+          <span class="sr-only" id="view-label" aria-live="polite">camera</span>
+          <button id="view-source" class="seg active" aria-pressed="true">Camera</button>
+          <button id="view-decoded" class="seg" aria-pressed="false">Decoded (RVM1)</button>
+        </div>
+        <div class="field actions">
+          <button id="snapshot">Save snapshot</button>
+          <button id="record">Start recording</button>
+          <button id="metrics">Export metrics</button>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint" id="zone-help">Drag on the picture to watch only that area.</p>
+  </section>
+
+  <div class="rail">
+    <section class="section">
+      <h2>Stream<span class="meta" id="m-codec">RVM1 &middot; H.264-style hybrid</span></h2>
+      <dl class="readouts">
+        <div><dt>Resolution</dt><dd id="m-res">320 &times; 240</dd></div>
+        <div><dt>Frame rate</dt><dd id="m-fps">24.6 fps</dd></div>
+        <div><dt>QP</dt><dd id="m-qp">26</dd></div>
+        <div><dt>PSNR</dt><dd id="m-psnr">31.4 dB</dd></div>
+        <div class="wide"><dt>Video bitrate</dt><dd id="m-bitrate">1.18 Mbps</dd><span class="peak" id="m-peak">peak 1.33 Mbps</span></div>
+      </dl>
+      <canvas id="spark" width="260" height="60" role="img" aria-label="Recent video bitrate history, scaled to a peak of 1.33 Mbps"></canvas>
+    </section>
+
+    <section class="section">
+      <h2>Transport</h2>
+      <dl class="readouts">
+        <div><dt>Packets sent</dt><dd id="m-pkts">18,493</dd></div>
+        <div><dt>Pictures</dt><dd id="m-pics">4,271</dd></div>
+        <div><dt>Packet loss</dt><dd id="m-loss">0.42 %</dd></div>
+        <div><dt>Jitter</dt><dd id="m-jitter">3.17 ms</dd></div>
+        <div><dt>Viewers</dt><dd id="m-clients">1</dd></div>
+        <div><dt>Recording</dt><dd id="m-rec">off</dd></div>
+      </dl>
+    </section>
+
+    <section class="section">
+      <h2>Analysis</h2>
+      <dl class="readouts">
+        <div><dt>Motion</dt><dd id="m-motion">6.84 %</dd></div>
+        <div><dt>Faces</dt><dd id="m-faces">1</dd></div>
+        <div><dt>Tracked objects</dt><dd id="m-tracks">T1</dd></div>
+        <div><dt>Gestures</dt><dd id="m-gestures">no hand</dd></div>
+        <div><dt>Expressions</dt><dd id="m-emotions">neutral</dd></div>
+        <div><dt>Audio events</dt><dd id="m-audio">none</dd></div>
+        <div class="wide"><dt>Detection zone</dt><dd id="m-roi">custom zone</dd></div>
+        <div class="wide"><dt>Face IDs</dt><dd id="m-identities">Alice Ng &middot; 0.82</dd></div>
+      </dl>
+    </section>
+
+    <!-- Face registry: input, one commit button, one status line, the saved
+         names with a delete per row. Failure state for the same line:
+           <p class="status err">No face in frame, hold still</p>
+         Empty state for the list:
+           <li class="empty">No names saved yet</li> -->
+    <section class="section registry" id="face-registry">
+      <h2>Face registry</h2>
+      <label class="reg-label" for="face-name">Name for the face in frame</label>
+      <div class="reg-row">
+        <input id="face-name" name="face-name" type="text" placeholder="e.g. Alice Ng" autocomplete="off" spellcheck="false" />
+        <button type="button" class="primary" id="face-remember">REMEMBER FACE</button>
+      </div>
+      <p class="status ok" id="face-status" role="status" aria-live="polite">Saved as Alice Ng, 3 frames averaged</p>
+      <ul class="names" id="face-list">
+        <li><span class="who">Alice Ng</span><button type="button" class="x" aria-label="Delete Alice Ng" title="Delete Alice Ng">&times;</button></li>
+        <li><span class="who">Marcus Foo</span><button type="button" class="x" aria-label="Delete Marcus Foo" title="Delete Marcus Foo">&times;</button></li>
+      </ul>
+    </section>
+
+    <section class="section">
+      <h2>Clips</h2>
+      <ul class="clips" id="clips">
+        <li>
+          <a href="#" aria-label="Open the clip recorded at 21:38">
+            <img src="data:image/jpeg;base64,{{THUMB}}" alt="" />
+            <span class="clip-meta">
+              <span class="clip-name">2026-10-24 21:38</span>
+              <span class="clip-sub">412 frames</span>
+            </span>
+          </a>
+        </li>
+      </ul>
+    </section>
+  </div>
+</main>
+
+<script>
+/* Static mock. Only three jobs: park the zone box the way the real page draws
+ * it, draw the bitrate history, and expose measured sizes for the capture
+ * script when the page is opened with ?measure. */
+(function () {
+  var roi = document.getElementById("roi");
+  if (roi) {
+    roi.style.left = "22%";
+    roi.style.top = "12%";
+    roi.style.width = "44%";
+    roi.style.height = "66%";
+  }
+
+  var canvas = document.getElementById("spark");
+  if (canvas) {
+    var values = [0.84, 0.91, 0.97, 1.06, 1.11, 1.04, 0.96, 1.02, 1.13, 1.19, 1.12, 1.01,
+                  0.94, 1.03, 1.14, 1.22, 1.26, 1.18, 1.07, 0.99, 1.05, 1.15, 1.23, 1.28,
+                  1.21, 1.12, 1.04, 0.98, 1.07, 1.17, 1.24, 1.31, 1.25, 1.16, 1.08, 1.02,
+                  1.09, 1.18, 1.27, 1.33, 1.26, 1.17, 1.09, 1.03, 1.11, 1.2, 1.24, 1.18];
+    // Back the canvas at its real CSS size so the line is not stretched.
+    var box = canvas.getBoundingClientRect();
+    var dpr = window.devicePixelRatio || 1;
+    var w = Math.max(1, Math.round(box.width * dpr));
+    var h = Math.max(1, Math.round(box.height * dpr));
+    canvas.width = w;
+    canvas.height = h;
+    var ctx = canvas.getContext("2d");
+    // The plot is scaled to the maximum of its own window, which is the number
+    // the tag beside the chart prints, so the trace's height is tied to a value
+    // the reader can check instead of being a shape with no units.
+    var peak = Math.max.apply(null, values);
+    var floor = 3 * dpr;             // baseline the trace stands on
+    var ceiling = 6 * dpr;           // the dashed rule: plot top = the peak level
+    var headroom = 4 * dpr;          // air between the rule and the apex
+    var band = h - floor - ceiling - headroom;
+    ctx.clearRect(0, 0, w, h);
+
+    // Ceiling rule: dashed, hairline, the muted grey at half strength rather
+    // than the accent, so it reads as the scale edge and not as a second series.
+    ctx.save();
+    ctx.setLineDash([3 * dpr, 3 * dpr]);
+    ctx.beginPath();
+    ctx.moveTo(0, Math.round(ceiling) + 0.5);
+    ctx.lineTo(w, Math.round(ceiling) + 0.5);
+    ctx.strokeStyle = "rgba(154,165,170,.5)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.beginPath();
+    values.forEach(function (v, i) {
+      var x = (i / (values.length - 1)) * w;
+      var y = h - floor - (v / peak) * band;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = "#5fd3c6";
+    ctx.lineWidth = 2 * dpr;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+    // A hairline floor, so the trace reads as a chart rather than a squiggle.
+    ctx.beginPath();
+    ctx.moveTo(0, h - 0.5);
+    ctx.lineTo(w, h - 0.5);
+    ctx.strokeStyle = "#252c30";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+
+  if (location.search.indexOf("measure") >= 0) {
+    var bits = [];
+    var stageBox = document.querySelector(".stage").getBoundingClientRect();
+    var railBox = document.querySelector(".rail").getBoundingClientRect();
+    bits.push("vp " + window.innerWidth + "x" + window.innerHeight + "  client " + document.documentElement.clientWidth + "  scrollW " + document.documentElement.scrollWidth +
+      "  doc " + document.documentElement.scrollHeight +
+      "  stage " + Math.round(stageBox.width) + "x" + Math.round(stageBox.height) +
+      "  rail " + Math.round(railBox.width) + "x" + Math.round(railBox.height));
+    var maxBottom = 0;
+    document.querySelectorAll(".section, .controls, .hint, .stage").forEach(function (n) {
+      var r = n.getBoundingClientRect();
+      maxBottom = Math.max(maxBottom, r.bottom + window.scrollY);
+      bits.push((n.className || n.tagName) + " top " + Math.round(r.top + window.scrollY) +
+        " h " + Math.round(r.height));
+    });
+    bits.push("lowest content bottom " + Math.round(maxBottom));
+    var out = document.createElement("pre");
+    out.style.cssText = "position:fixed;left:8px;top:8px;z-index:99;background:#000;color:#4f8;" +
+      "border:1px solid #333;font:13px/1.4 monospace;padding:6px 10px;margin:0;white-space:pre";
+    out.textContent = bits.join("\n");
+    document.body.appendChild(out);
+  }
+})();
+</script>
+</body>
+</html>
+
+
+
+
+
+
+
+
