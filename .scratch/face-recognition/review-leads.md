@@ -18,6 +18,8 @@
 
 **Fidelity 风险（未证实）**：AS-2 的「低于阈值不显示名字」在现有 `analysisText()` 里没有专门分支，容易被写成「有名单就显示」；验收时须用低相似度样本实测。
 
+**执行期新票**：02 r2 门发现 `remove_face` 与 `register_face` 并发丢更新，已开 06 号票在会话内修完；它不在本轮审票范围内，按逐票门验。
+
 ## Dispatch failures
 
 none (route plan exit 0, S=1)

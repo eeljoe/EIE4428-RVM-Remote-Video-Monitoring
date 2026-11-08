@@ -1,0 +1,3 @@
+Created TensorFlow Lite XNNPACK delegate for CPU.
+[31724:40144:1109/011129.626:ERROR:chrome\updater\ipc\update_service_dialer_win.cc:77] Failed to open named pipe server process 30456: 拒绝访问。 (0x5)
+[31724:40144:1109/011129.833:ERROR:chrome\updater\ipc\update_service_dialer_win.cc:77] Failed to open named pipe server process 30456: 拒绝访问。 (0x5)

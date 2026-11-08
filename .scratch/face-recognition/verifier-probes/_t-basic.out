@@ -1,0 +1,2 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>body{margin:0}</style></head><body><pre id="r">W=526 H=744 SW=526</pre><script>document.getElementById("r").textContent="W="+innerWidth+" H="+innerHeight+" SW="+document.documentElement.scrollWidth;</script></body></html>
