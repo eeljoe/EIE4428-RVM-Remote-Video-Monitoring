@@ -1,6 +1,6 @@
 # 09 — 补合法名字含点的参数用例
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 08
 真机自检：不需要
 
@@ -84,3 +84,5 @@ cd <repo>; .\.venv\Scripts\python.exe -m pytest tests/test_face_api.py -q -k can
 - 决定：把「只有 `.` 与 `..` 是死段，故含点名必须可存」写进 docstring / 理由：下一个收紧校验的人先读到的是 docstring，这是唯一带方向的反向约束 / 影响面：只改注释，不改断言。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED 26b75ad — 新 4 条含点参数走真 HTTP（aiohttp TestServer 真端口）注册 201 且名单文件未损坏；亲手三发变异（含点即拒 / startswith / endswith）全部按正确范围变红，还原 sha1 一致后复绿；定向 48、全套 594 绿，产品面对 08 基线零改动。｜报告：.scratch/face-recognition/reports/09-r1-verifier.md｜模型路线：未标注（派发未带 --model）
