@@ -114,3 +114,4 @@
 ## Verdicts
 
 - 2026-11-09 r1 VERIFIED 218c7ad — 干净 worktree 亲跑：全套 634 绿、定向 53 绿；served 字节与副本逐文件同 sha256；真 Chrome 两档实测字号/行高/颜色全部命中票面数值；对比度按 served hex 独立重算 7.73/16.65；390 顺序、无横向溢出、1440 无截断、峰值与 `history.bitrate` 最大值同源（脚本化 14 帧运行时实测 "peak 2.50 Mbps" 而末值 700 kbps）；四族变异全部被杀并还原。｜报告：.scratch/face-recognition/reports/03-r1-verifier.md｜模型路线：SWE-2 High
+- 2026-11-09 r1 VERIFIED 218c7ad — 干净 worktree 亲跑：全套 634 绿、定向 53 绿；served 字节与副本逐文件同 sha256；真 Chrome 两档实测字号/行高/颜色全部命中票面数值；对比度按 served hex 独立重算 7.73/16.65；390 顺序、无横向溢出、1440 无截断、峰值与 `history.bitrate` 最大值同源（脚本化 14 帧运行时实测 "peak 2.50 Mbps" 而末值 700 kbps）；四族变异全部被杀并还原。｜报告：.scratch/face-recognition/reports/03-r1-verifier.md｜模型路线：swe-2-high
