@@ -80,6 +80,7 @@ restored-sha1=EF759A7BE7AE8DA23FA5EFCD956370798FCD92A8 → 16 passed in 1.31s
 
 - **真 HTTP 层并发未重跑**：02 r2 门 Part B 是经 `POST`/`DELETE` 打出来的；本轮证据是进程内真线程真锁（`StreamSession.remove_face`/`register_face` 直调），不是 aiohttp 端到端。功能一致，但「端点层」这一步本轮没有新鲜读数。
 - **覆盖清单脚本在本仓不存在**：`tools/coverage-tests.mjs` 不存在（`tools/` 下只有 `benchmark.py`、`build_report.py`、`make_zip.py` 等），派发消息里的覆盖读数无法亲跑，标 UNVERIFIED（按派发读数为「两侧均无覆盖」）。
+- **没有 typecheck 可跑**：本仓 `pyproject.toml` 无 mypy/ruff/black 配置，`mypy.ini`/`ruff.toml` 不存在，因此本轮只有 pytest 一套读数（报告不声称跑过 typecheck）。
 - **未测 remove 与 `FaceStore.load()` 并发**：`load()` 只在 `__init__` 里线程启动前调用，产品没有第二条写路径。
 - **未测识别器镜像读方竞争**：`replace_known_faces` 整体替换、读方walk旧映射；既有 02 票测试覆盖，本票未动。
 - **未覆盖「注册取样与分析 tick 并发」**：测试直接填 `_recent_frames`（这三帧就是要平均的内容），不走 `run_once`/Haar，故 `_inference_lock` 的互斥不在本票证据里（02 票的 `tests/test_face_api.py:481` 覆盖）。
