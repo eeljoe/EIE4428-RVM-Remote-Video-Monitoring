@@ -3,6 +3,7 @@
 import asyncio
 import json
 import re
+from pathlib import Path
 
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -499,6 +500,62 @@ async def test_groups_are_separated_by_at_least_20px_and_there_are_five_sections
 
     assert len(re.findall(r'class="section\b', html)) == 5
     assert len(re.findall(r"<h2", html)) == 5
+
+
+async def test_the_registry_to_stream_boundary_keeps_its_rule_and_20px(client):
+    """AS-6: the registry is ordered above the rail, so STREAM is the one section
+    ``.section + .section`` cannot reach -- it is the rail's first child.
+
+    The overall dynamic gate measured that seam at 16px with no divider while
+    every other boundary in the column had 24px and a 1px rule. The fix gives it
+    the same 8 + 16 and the same rule rather than inventing a second spacing.
+    """
+    css = await (await client.get("/static/style.css")).text()
+    narrow = media_block(css, "max-width: 900px")
+
+    rule = re.search(r"\.rail\s*>\s*\.section:first-child\s*\{([^}]*)\}", narrow)
+    assert rule is not None, "STREAM has no boundary rule once the registry leads"
+    margin = int(re.search(r"margin-top:\s*(\d+)px", rule.group(1)).group(1))
+    padding = int(re.search(r"padding-top:\s*(\d+)px", rule.group(1)).group(1))
+    assert margin + padding >= 20
+    assert "border-top: 1px solid var(--line)" in rule.group(1)
+
+
+async def test_the_design_copy_matches_the_served_status_line_verbatim(client):
+    """AS-7: §8 was handwritten into the page, so the document and the script are
+    compared word for word.
+
+    The overall static gate found §8 still promising `Two faces in frame, show
+    one`, `add a surname`, `Analysis is off` and `warming up` long after the
+    implementation had settled on shorter lines, and the `REMEMBER FACE` greyed-out
+    clause the registry ticket had explicitly rejected. Comparing the pair here is
+    what keeps the design document from drifting away from the page again.
+    """
+    script = await (await client.get("/static/app.js")).text()
+    design = (Path(__file__).resolve().parents[1] / "docs" / "DESIGN-dashboard.md").read_text(
+        encoding="utf-8"
+    )
+
+    for copy in (
+        "no face in frame, hold still",
+        "more than one face in frame",
+        "analysis is off",
+        "models still loading",
+        " is already saved",
+        " frames averaged",
+        "No names saved yet",
+    ):
+        assert copy in script, copy
+        assert copy in design, f"DESIGN-dashboard.md does not quote {copy!r}"
+
+    for stale in (
+        "Two faces in frame",
+        "add a surname",
+        "Analysis is off",
+        "warming up",
+        "RECORDING",
+    ):
+        assert stale not in design, f"DESIGN-dashboard.md still promises {stale!r}"
 
 
 async def test_the_redundant_frames_and_duplicate_labels_are_gone(client):

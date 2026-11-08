@@ -295,6 +295,13 @@ button.primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
    * scrolling past the telemetry. */
   .registry { order: 4; }
   .section + .section { margin-top: 8px; padding-top: 16px; }
+  /* The registry is ordered above the telemetry, so the boundary STREAM sits on
+   * is the rail's first child -- the one neighbouring pair `.section + .section`
+   * cannot see. Same 8 + 16 and the same 1px rule as every other boundary in
+   * this column, so the registry-to-STREAM seam reads like the rest. */
+  .rail > .section:first-child {
+    margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--line);
+  }
 
   .controls .row { display: contents; }
   .field {

@@ -81,7 +81,15 @@ class FaceRequestError(Exception):
 
 
 def validated_face_name(name) -> str:
-    """The trimmed name *name*, or :class:`FaceRequestError` ``bad-name``."""
+    """The trimmed name *name*, or :class:`FaceRequestError` ``bad-name``.
+
+    A stored name has to stay reachable: it is also the last segment of
+    ``DELETE /api/faces/known/<name>``. ``.`` and ``..`` are dot segments the
+    router resolves before the handler runs, and a name carrying a path
+    separator arrives as two segments, so neither could ever be deleted -- they
+    are refused at the door rather than becoming an entry the API cannot touch.
+    A name that is only whitespace is empty once trimmed.
+    """
     if not isinstance(name, str):
         raise FaceRequestError(400, "bad-name", "the name must be a string")
     cleaned = name.strip()
@@ -91,8 +99,14 @@ def validated_face_name(name) -> str:
         raise FaceRequestError(
             400, "bad-name", f"the name must be at most {NAME_LIMIT} characters"
         )
-    if any(ord(character) < 32 for character in cleaned):
+    if any(ord(character) < 32 or ord(character) == 127 for character in cleaned):
         raise FaceRequestError(400, "bad-name", "the name must be a single line")
+    if cleaned in (".", ".."):
+        raise FaceRequestError(400, "bad-name", "the name must not be a dot segment")
+    if "/" in cleaned or "\\" in cleaned:
+        raise FaceRequestError(
+            400, "bad-name", "the name must not contain a path separator"
+        )
     return cleaned
 
 

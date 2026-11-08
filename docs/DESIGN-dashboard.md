@@ -124,7 +124,7 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 
 ### 4.4 loading / empty / error
 
-- loading:模型预热 2 到 3 秒期间,读数值显示 `warming up`(`--muted`),`REMEMBER FACE` 置 disabled。不用转圈、不用骨架闪动。
+- loading:模型预热 2 到 3 秒期间,Faces / Face IDs 读数显示 `loading`(`--muted`),其余读数仍是 `-`;`REMEMBER FACE` 不置灰,按下得到 `models still loading` 一行。不用转圈、不用骨架闪动。
 - empty:名单 `No names saved yet`,片段 `No recording yet`(替换现有 `No recording yet.` 的句号);13px `--muted`,上下 8,说明怎么填(去上面输入名字并点 REMEMBER FACE)。
 - error:内联在状态行,不弹 toast,不写日志行、异常类名、HTTP 码。
 
@@ -174,21 +174,25 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 
 UI 文案全英文,一句一行不超过 60 字符,句末不加句号,不用感叹号。名字取输入框原文,不加引号。
 
+下表是状态行上的逐字文案,大小写与标点照抄 `src/rvm/web/app.js` 的 `FACE_REASONS` 与 `rememberFace`:
+
 | 态 | 触发 | 文案(逐字) | 颜色 | 行为 |
 |---|---|---|---|---|
 | 注册成功 | 最近三帧每帧一张脸,取平均入库 | `Saved as Alice Ng, 3 frames averaged` | `--ok` `#6ecb8f` | 名单立刻出现该名字;行首圆点同色 |
-| 无脸 | 画面内 0 张脸 | `No face in frame, hold still` | `--alarm` `#f0715a` | 按钮保持可用,名单不变 |
-| 多脸 | 画面内超过 1 张脸 | `Two faces in frame, show one` | `--alarm` `#f0715a` | 不取平均,不写盘 |
-| 重名 | 名字已在名单里 | `Alice Ng is already saved, add a surname` | `--warn` `#e3b45c` | 不覆盖旧向量,名单不变 |
-| 分析关闭 | 服务以 `--no-analysis` 启动 | `Analysis is off` | `--muted` `#9aa5aa` | Faces / Face IDs 值显示 `off`(`--muted`);`REMEMBER FACE` disabled(.45) |
+| 无脸 | 画面内 0 张脸 | `no face in frame, hold still` | `--alarm` `#f0715a` | 按钮保持可用,名单不变 |
+| 多脸 | 画面内超过 1 张脸 | `more than one face in frame` | `--alarm` `#f0715a` | 不取平均,不写盘 |
+| 重名 | 名字已在名单里 | `Alice Ng is already saved` | `--warn` `#e3b45c` | 不覆盖旧向量,名单不变 |
+| 分析关闭 | 服务以 `--no-analysis` 启动 | `analysis is off` | `--muted` `#9aa5aa` | Faces / Face IDs 值显示 `off`(`--muted`);`REMEMBER FACE` 不置灰,按下即得到这一行 |
+
+`REMEMBER FACE` 只在自己那一次请求在途时 `disabled`:预热与分析关闭这两态必须能按下,否则操作者拿不到它们各自的文案。
 
 补三个非错误态:
 
 - 空名单:`No names saved yet`,13px `--muted`,说明去上面输入名字。
-- 预热:Faces / Face IDs 值显示 `warming up`(`--muted`)。
-- 录制中:`RECORDING` 用 `--alarm`,画面外框换成 `--alarm` 3px。
+- 预热:Faces / Face IDs 值显示 `loading`(`--muted`);此时按下 `REMEMBER FACE`,状态行写 `models still loading`(`--muted`)。
+- 录制中:TRANSPORT 的 `Recording` 读数显示 `recording`,与其它读数同色;`Start recording` / `Stop recording` 按钮进告警态(边框与字 `--alarm`、底 `--alarm-soft`),画面不加外框。
 
-规则:五态共用同一条状态行,同一时刻只显示一条;文案里不出现命令行参数、文件路径、异常类名、HTTP 码,`Analysis is off` 后面不接参数说明。
+规则:五态共用同一条状态行,同一时刻只显示一条;文案里不出现命令行参数、文件路径、异常类名、HTTP 码,`analysis is off` 后面不接参数说明。
 
 ## 9 设计变量(可直接抄)
 

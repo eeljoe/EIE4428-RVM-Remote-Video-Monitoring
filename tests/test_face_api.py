@@ -12,6 +12,7 @@ import asyncio
 import json
 import time
 from types import SimpleNamespace
+from urllib.parse import quote
 
 import cv2
 import numpy as np
@@ -293,6 +294,67 @@ async def test_a_useable_name_is_required(build, tmp_path, payload):
     assert_contract(body)
     assert body["reason"] == "bad-name"
     assert not list_file(tmp_path).exists()
+
+
+#: Names a stored entry could never be reached by again.  A registered name is
+#: also the last segment of ``DELETE /api/faces/known/<name>``: ``.`` and ``..``
+#: are dot segments the router resolves before the handler runs, a ``/`` or
+#: ``\`` turns one segment into several, and a control character has no URL form
+#: the operator would type.  Each of these was storable and then permanent.
+UNREACHABLE_NAMES = [
+    ".",
+    "..",
+    " . ",
+    "../x",
+    "a/b",
+    "a\\b",
+    "/etc/passwd",
+    "tab\there",
+    "nul\u0000byte",
+    "del\u007fchar",
+]
+
+
+@pytest.mark.parametrize("hostile", UNREACHABLE_NAMES)
+async def test_a_name_that_could_never_be_deleted_is_refused_before_it_is_stored(
+    build, tmp_path, hostile
+):
+    """AS-4: refuse at the door instead of writing an entry the API cannot touch."""
+    session, client = await build()
+    await feed_three(session)
+
+    response = await client.post("/api/faces/known", json={"name": hostile})
+
+    assert response.status == 400
+    body = await response.json()
+    assert_contract(body)
+    assert body["reason"] == "bad-name"
+    assert not list_file(tmp_path).exists()
+
+
+@pytest.mark.parametrize(
+    "legal", ["Alice Ng", "张小英", "O'Brien", "Zoë", "  Mary Ann  "]
+)
+async def test_a_name_that_can_be_deleted_again_is_still_accepted(build, tmp_path, legal):
+    """AS-4 counter-check: the refusal must not eat an ordinary name.
+
+    Spaces, Chinese characters, apostrophes, accents and a name typed with stray
+    outer spaces are all things an operator really types; each is stored trimmed
+    and can then be removed again by the same segment it was stored under.
+    """
+    session, client = await build()
+    await feed_three(session)
+
+    response = await client.post("/api/faces/known", json={"name": legal})
+
+    assert response.status == 201
+    stored = json.loads(list_file(tmp_path).read_text(encoding="utf-8"))["faces"]
+    assert list(stored) == [legal.strip()]
+
+    removed = await client.delete("/api/faces/known/" + quote(legal.strip(), safe=""))
+
+    assert removed.status == 200
+    assert (await removed.json())["known"] == []
 
 
 async def test_a_body_that_is_not_json_is_refused(build, tmp_path):
