@@ -142,6 +142,31 @@ def shift_plane(plane: np.ndarray, dx: int, dy: int) -> np.ndarray:
     return result
 
 
+def _padded(plane: np.ndarray, border: int) -> np.ndarray:
+    """Pad a plane once so every shifted copy becomes a slice view.
+
+    Padding costs one copy per plane per picture.  The search then evaluates
+    dozens of offsets, and each one used to copy the whole plane twice.
+    """
+    return np.pad(np.asarray(plane, dtype=np.float64), border, mode="edge")
+
+
+def _view(
+    padded: np.ndarray, dx: int, dy: int, height: int, width: int
+) -> np.ndarray:
+    """The plane shifted by ``(dx, dy)``, as a view into the padded plane.
+
+    Equivalent to :func:`shift_plane` for every offset inside the border,
+    including the edge replication, but without allocating a new array.
+    """
+    border_y = (padded.shape[0] - height) // 2
+    border_x = (padded.shape[1] - width) // 2
+    return padded[
+        border_y - dy : border_y - dy + height,
+        border_x - dx : border_x - dx + width,
+    ]
+
+
 def _sad(plane: np.ndarray, shifted: np.ndarray) -> float:
     return float(np.abs(plane - shifted).sum())
 
@@ -186,6 +211,8 @@ def global_motion_search(
     reference: np.ndarray,
     current: np.ndarray,
     search_range: int = 8,
+    *,
+    padded: np.ndarray | None = None,
 ) -> tuple[int, int, float]:
     """Three-step search for the single best offset of the whole frame.
 
@@ -193,6 +220,9 @@ def global_motion_search(
     its four axis neighbours, then halves the step until it reaches one.  That
     covers a ``2 * search_range`` span in about ``5 * log2(search_range)``
     evaluations instead of ``(2r + 1) ** 2``.
+
+    Pass ``padded`` when the caller already padded the reference: the search
+    then reads slice views instead of copying the plane per candidate.
     """
     if reference.shape != current.shape:
         raise ValueError(
@@ -201,8 +231,12 @@ def global_motion_search(
     if search_range < 1:
         raise ValueError(f"search_range must be positive, got {search_range}")
 
+    height, width = reference.shape
+    if padded is None:
+        padded = _padded(reference, search_range)
+
     best_x, best_y = 0, 0
-    best_cost = _sad(current, reference)
+    best_cost = _sad(current, _view(padded, 0, 0, height, width))
     step = max(1, search_range // 2)
 
     while step >= 1:
@@ -213,7 +247,9 @@ def global_motion_search(
             if abs(candidate_x) > search_range or abs(candidate_y) > search_range:
                 continue
 
-            cost = _sad(current, shift_plane(reference, candidate_x, candidate_y))
+            cost = _sad(
+                current, _view(padded, candidate_x, candidate_y, height, width)
+            )
             if cost < best_cost:
                 best_cost, best_x, best_y = cost, candidate_x, candidate_y
                 improved = True
@@ -232,6 +268,8 @@ def refine_motion_field(
     base_dy: int,
     window: int = 2,
     lambda_rd: float = MOTION_LAMBDA,
+    *,
+    padded: np.ndarray | None = None,
 ) -> MotionField:
     """Per-block refinement of a global motion vector.
 
@@ -252,7 +290,11 @@ def refine_motion_field(
         )
 
     current_plane = np.asarray(current, dtype=np.float64)
-    columns, rows = block_shape(reference.shape[1], reference.shape[0])
+    height, width = reference.shape
+    if padded is None:
+        border = window + max(abs(base_dx), abs(base_dy))
+        padded = _padded(reference, border)
+    columns, rows = block_shape(width, height)
     block_count = rows * columns
 
     best_dx = np.full(block_count, base_dx, dtype=np.int32)
@@ -263,7 +305,7 @@ def refine_motion_field(
         for delta_x in range(-window, window + 1):
             candidate_x = base_dx + delta_x
             candidate_y = base_dy + delta_y
-            shifted = shift_plane(reference, candidate_x, candidate_y)
+            shifted = _view(padded, candidate_x, candidate_y, height, width)
             costs = _block_sad_planes(current_plane, shifted, rows, columns)
 
             # Charge a non-zero displacement for the bits it will cost.
@@ -289,8 +331,9 @@ def estimate_motion(
     refine_window: int = 2,
 ) -> MotionField:
     """Estimate motion for every block: global search, then local refinement."""
+    padded = _padded(reference, search_range + refine_window)
     global_dx, global_dy, _ = global_motion_search(
-        reference, current, search_range=search_range
+        reference, current, search_range=search_range, padded=padded
     )
     return refine_motion_field(
         reference,
@@ -298,6 +341,7 @@ def estimate_motion(
         base_dx=global_dx,
         base_dy=global_dy,
         window=refine_window,
+        padded=padded,
     )
 
 
@@ -319,14 +363,21 @@ def compensate(reference: np.ndarray, field: MotionField) -> np.ndarray:
     dx = field.dx.tolist()
     dy = field.dy.tolist()
 
-    # Cache shifted planes so a vector reused by many blocks is computed once.
+    # One padded reference turns each distinct vector into a slice view, so a
+    # repeated vector costs nothing and a new one costs no plane copy.
+    largest = max(
+        (abs(value) for row in (dx, dy) for line in row for value in line),
+        default=0,
+    )
+    padded = _padded(reference, largest)
+
     cache: dict[tuple[int, int], np.ndarray] = {}
     for row in range(rows):
         for col in range(columns):
             key = (dx[row][col], dy[row][col])
             plane = cache.get(key)
             if plane is None:
-                plane = shift_plane(reference, key[0], key[1])
+                plane = _view(padded, key[0], key[1], expected[0], expected[1])
                 cache[key] = plane
 
             prediction[

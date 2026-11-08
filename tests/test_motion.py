@@ -6,6 +6,8 @@ import pytest
 from rvm.codec.motion import (
     BLOCK_SIZE,
     MotionField,
+    _padded,
+    _view,
     block_shape,
     compensate,
     estimate_motion,
@@ -58,6 +60,30 @@ def test_shift_plane_fills_the_border_by_edge_replication():
 
     assert shifted.shape == plane.shape
     assert np.all(shifted == 1.0)
+
+
+def test_padded_view_matches_shift_plane_for_every_offset_in_the_border():
+    plane = np.arange(100, dtype=np.float32).reshape(10, 10) * 3.0
+    padded = _padded(plane, 4)
+
+    for dx in range(-4, 5):
+        for dy in range(-4, 5):
+            view = _view(padded, dx, dy, *plane.shape)
+
+            assert np.array_equal(view, shift_plane(plane, dx, dy))
+
+
+def test_compensation_replicates_edges_like_shift_plane():
+    reference = np.arange(64, dtype=np.float32).reshape(8, 8)
+    field = MotionField(
+        dx=np.array([[1]], dtype=np.int32),
+        dy=np.array([[-1]], dtype=np.int32),
+        cost=np.zeros((1, 1)),
+    )
+
+    prediction = compensate(reference, field)
+
+    assert np.array_equal(prediction, shift_plane(reference, 1, -1))
 
 
 def test_global_search_finds_a_pure_horizontal_shift():
