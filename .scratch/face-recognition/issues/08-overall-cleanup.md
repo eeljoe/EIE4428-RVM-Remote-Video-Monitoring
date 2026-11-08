@@ -1,6 +1,6 @@
 # 08 — 整体门收口：移动端间隙、名字校验、设计文案
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 07
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/08-overall-cleanup-selfcheck.md`）
 **UI:** yes
