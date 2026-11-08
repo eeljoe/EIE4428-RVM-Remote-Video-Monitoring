@@ -1,6 +1,6 @@
 # 01 — 监控页设计规范（可读性与简化）
 
-Status: ready-for-agent
+Status: claimed
 Blocked by:
 真机自检：不需要
 **UI:** yes
