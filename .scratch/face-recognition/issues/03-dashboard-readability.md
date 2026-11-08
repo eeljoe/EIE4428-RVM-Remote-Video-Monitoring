@@ -1,6 +1,6 @@
 # 03 — 整页可读性与结构重做
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 01
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/03-dashboard-readability-selfcheck.md`）
 **UI:** yes
