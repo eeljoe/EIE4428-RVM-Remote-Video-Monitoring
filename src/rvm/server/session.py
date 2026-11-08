@@ -32,12 +32,14 @@ import numpy as np
 
 from ..analysis import states
 from ..analysis.detect import FaceDetector, MotionDetector, sensitivity_settings
+from ..analysis.face_store import FaceStore, FaceStoreError
 from ..analysis.gesture import GestureDetection, GestureRecognizer
 from ..analysis.recognition import (
     EmotionDetection,
     EmotionRecognizer,
     FaceRecognition,
     FaceRecognizer,
+    FaceSamplingError,
 )
 from ..analysis.track import CentroidTracker, regions_from_mask
 from ..analysis.quality import psnr
@@ -49,12 +51,50 @@ from ..network.stats import StreamStats
 from .recorder import FrameRecorder
 from .source import CaptureSource, SyntheticSource
 
-__all__ = ["ClientSession", "StreamSession"]
+__all__ = ["ClientSession", "FaceRequestError", "StreamSession"]
 
 #: How many audio events stay on record; the dashboard shows the newest few.
 AUDIO_EVENT_LIMIT = 50
 #: Audio chunks consumed per analysis tick, so a burst cannot stall a picture.
 AUDIO_CHUNKS_PER_TICK = 8
+#: How many analysed frames a registration averages one face from.  One frame
+#: is not enough: landmark coordinates move by tens of pixels between angles,
+#: so a single sample registers a pose rather than a person.
+REGISTRATION_FRAMES = 3
+#: Longest accepted name.  A name is a label on a dashboard, not a paragraph.
+NAME_LIMIT = 40
+
+
+class FaceRequestError(Exception):
+    """A face request that must fail; carries the contract's status and reason.
+
+    Keeping the pair next to the check that raised it means the reason and the
+    condition cannot drift apart: the HTTP layer only translates, it does not
+    decide.
+    """
+
+    def __init__(self, status: int, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.status = status
+        self.reason = reason
+        self.message = message
+
+
+def validated_face_name(name) -> str:
+    """The trimmed name *name*, or :class:`FaceRequestError` ``bad-name``."""
+    if not isinstance(name, str):
+        raise FaceRequestError(400, "bad-name", "the name must be a string")
+    cleaned = name.strip()
+    if not cleaned:
+        raise FaceRequestError(400, "bad-name", "the name must not be empty")
+    if len(cleaned) > NAME_LIMIT:
+        raise FaceRequestError(
+            400, "bad-name", f"the name must be at most {NAME_LIMIT} characters"
+        )
+    if any(ord(character) < 32 for character in cleaned):
+        raise FaceRequestError(400, "bad-name", "the name must be a single line")
+    return cleaned
+
 
 
 class ClientSession:
@@ -112,6 +152,7 @@ class StreamSession:
         record_dir: str | Path | None = None,
         analysis: bool = False,
         analysis_interval: float = 0.5,
+        known_faces: str | Path | None = None,
     ) -> None:
         self.width = width
         self.height = height
@@ -143,6 +184,23 @@ class StreamSession:
         self.gesture_recognizer = GestureRecognizer()
         self.audio_analyzer = AudioAnalyzer()
         self.audio_capture: AudioCapture | None = None
+
+        # The registry of people lives on disk; the recogniser keeps a mirror of
+        # it so identifying a picture costs no file access.  Loading happens
+        # here, before the first analysis tick, so "restart and it still knows
+        # you" is a property of the session rather than of some later request.
+        self.face_store = FaceStore(known_faces)
+        self.face_recognizer.replace_known_faces(self.face_store.load())
+        # One lock for every landmarker inference.  ``_analyse`` runs on the
+        # encode thread and registration runs on a request worker thread, and
+        # both ask the same MediaPipe instance to work: two concurrent calls is
+        # not a supported thing to do.
+        self._inference_lock = threading.Lock()
+        # The last few frames that were actually analysed, newest last.
+        # Registration averages a face from each of them, so the sample is what
+        # the operator was looking at rather than whatever arrives next.
+        self._recent_frames: list[np.ndarray] = []
+
         # A freshly enabled analyser has not seen a picture yet: "pending", not
         # "disabled", or the dashboard cannot tell "not started" from "off".
         initial_state = states.STATE_PENDING if analysis else states.STATE_DISABLED
@@ -406,9 +464,21 @@ class StreamSession:
             return
         self._analysis_due = now + self.analysis_interval
 
-        face_identities = self.face_recognizer.recognize(frame)
-        emotions = self.emotion_recognizer.detect(frame)
-        gestures = self.gesture_recognizer.detect(frame)
+        # Keep the frames that were analysed: a registration later samples
+        # exactly these.  The copy is not paranoia -- the source may hand back
+        # the same buffer next time, and the encoder still holds this array.
+        self._recent_frames = (
+            self._recent_frames + [np.array(frame, copy=True)]
+        )[-REGISTRATION_FRAMES:]
+
+        # The lock is shared with ``register_face``.  It is taken per tick
+        # rather than per analyser because one inference section is also what
+        # keeps a registration from landing between the face results and the
+        # expression results of the same picture.
+        with self._inference_lock:
+            face_identities = self.face_recognizer.recognize(frame)
+            emotions = self.emotion_recognizer.detect(frame)
+            gestures = self.gesture_recognizer.detect(frame)
         self._analysis_view = (face_identities, emotions, gestures)
 
     def _drain_audio(self) -> None:
@@ -531,6 +601,106 @@ class StreamSession:
             },
             "features": self.features(),
         }
+
+    # -- known faces ---------------------------------------------------------
+
+    def known_face_names(self) -> list[str]:
+        """The registered names, in a stable order."""
+        return self.face_store.names()
+
+    def register_face(self, name) -> dict:
+        """Average one face from each of the last analysed frames and store it.
+
+        Blocking by design: it runs landmarker inference, so the HTTP handler
+        calls it through ``asyncio.to_thread`` and every inference it makes
+        takes :attr:`_inference_lock`, the lock :meth:`_analyse` also holds.
+        Nothing here touches the event loop, and nothing is written until every
+        sample has been accepted -- a refused request leaves the file alone.
+        """
+        name = validated_face_name(name)
+        if name in self.face_store.faces:
+            raise FaceRequestError(
+                409, "name-exists", f"{name!r} is already registered"
+            )
+        if not self.analysis_enabled:
+            raise FaceRequestError(
+                503, "analysis-disabled", "face analysis is switched off"
+            )
+        if not self._models_ready.is_set():
+            raise FaceRequestError(
+                503, "models-loading", "the face models are still loading"
+            )
+
+        frames = list(self._recent_frames)
+        if len(frames) < REGISTRATION_FRAMES:
+            raise FaceRequestError(
+                409,
+                "samples-missing",
+                f"only {len(frames)} analysed frames so far, "
+                f"{REGISTRATION_FRAMES} are needed",
+            )
+
+        embeddings = []
+        for frame in frames[-REGISTRATION_FRAMES:]:
+            faces = self._sample_faces(frame)
+            if not faces:
+                raise FaceRequestError(
+                    409, "no-face", "no face was found in the recent frames"
+                )
+            if len(faces) > 1:
+                raise FaceRequestError(
+                    409,
+                    "multiple-faces",
+                    f"{len(faces)} faces were found; register one person at a time",
+                )
+            embeddings.append(faces[0])
+
+        faces = dict(self.face_store.faces)
+        faces[name] = np.mean(np.stack(embeddings), axis=0)
+        self._publish_faces(faces)
+        return {"name": name, "samples": len(embeddings), "known": self.known_face_names()}
+
+    def remove_face(self, name) -> dict:
+        """Forget a name and write the list immediately.
+
+        Also blocking (it rewrites the file), and also called from a worker
+        thread, so a slow disk cannot stall the stream or the telemetry push.
+        """
+        cleaned = str(name).strip()
+        faces = dict(self.face_store.faces)
+        if cleaned not in faces:
+            raise FaceRequestError(
+                404, "bad-name", f"{cleaned!r} is not registered"
+            )
+        del faces[cleaned]
+        self._publish_faces(faces)
+        return {"removed": True, "known": self.known_face_names()}
+
+    def _sample_faces(self, frame: np.ndarray) -> list[np.ndarray]:
+        """Inference for one registration sample, under the shared lock."""
+        try:
+            with self._inference_lock:
+                return self.face_recognizer.sample_faces(frame)
+        except FaceSamplingError as exc:
+            raise FaceRequestError(
+                503, "unavailable", f"face recogniser unavailable: {exc}"
+            ) from exc
+
+    def _publish_faces(self, faces: dict[str, np.ndarray]) -> None:
+        """Save the list, then swap it into the recogniser.
+
+        Saving first means a write failure leaves both the file and the
+        in-memory list as they were.  Both halves are whole replacements: the
+        encode thread may be walking the old mapping at this very moment.
+        """
+        previous = self.face_store.faces
+        self.face_store.replace(faces)
+        try:
+            self.face_store.save()
+        except FaceStoreError as exc:
+            self.face_store.replace(previous)
+            raise FaceRequestError(500, "write-failed", str(exc)) from exc
+        self.face_recognizer.replace_known_faces(faces)
 
     # -- outputs -------------------------------------------------------------
 

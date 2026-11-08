@@ -12,6 +12,9 @@ Routes
 ``POST /api/config``           change the encoder operating point
 ``POST /api/record``           start or stop a clip
 ``GET  /api/metrics``          download the current telemetry as JSON
+``GET  /api/faces/known``      the registered face names
+``POST /api/faces/known``      register a face from the recent analysis frames
+``DELETE /api/faces/known/{name}``  forget a registered face
 ``WS   /ws``                   telemetry push plus the live packet feed
 
 A browser cannot decode the project's custom RVM1 bitstream, so the *picture*
@@ -27,12 +30,14 @@ import asyncio
 import json
 import re
 import time
+import typing
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
 
+from ..analysis.face_store import DEFAULT_KNOWN_FACES
 from ..network.packet import Packet
-from .session import StreamSession
+from .session import FaceRequestError, StreamSession
 from .source import open_source
 
 __all__ = ["build_app", "create_app", "main"]
@@ -57,6 +62,7 @@ def create_app(
     session: StreamSession | None = None,
     analysis: bool = False,
     analysis_interval: float = 0.5,
+    known_faces: str | Path | None = None,
 ) -> web.Application:
     """Build the application and its single shared :class:`StreamSession`."""
     if session is None:
@@ -75,6 +81,7 @@ def create_app(
             record_dir=record_dir,
             analysis=analysis,
             analysis_interval=analysis_interval,
+            known_faces=known_faces,
         )
 
     app = web.Application()
@@ -94,6 +101,9 @@ def create_app(
     app.router.add_get("/api/features", handle_features)
     app.router.add_get("/api/tracks", handle_tracks)
     app.router.add_get("/api/faces/identities", handle_face_identities)
+    app.router.add_get("/api/faces/known", handle_known_faces)
+    app.router.add_post("/api/faces/known", handle_register_face)
+    app.router.add_delete("/api/faces/known/{name}", handle_forget_face)
     app.router.add_get("/api/emotions", handle_emotions)
     app.router.add_get("/api/gestures", handle_gestures)
     app.router.add_get("/api/audio/events", handle_audio_events)
@@ -336,8 +346,72 @@ async def handle_face_identities(request: web.Request) -> web.Response:
     return web.json_response(session.analysis_status()["face_identities"])
 
 
+#: Statuses the face endpoints may answer with, and the exception class that
+#: carries each one.  Raised rather than returned so the failure is shaped in
+#: one place whether it comes from validation or from a worker thread.
+_CONTRACT_ERRORS = {
+    400: web.HTTPBadRequest,
+    404: web.HTTPNotFound,
+    409: web.HTTPConflict,
+    500: web.HTTPInternalServerError,
+    503: web.HTTPServiceUnavailable,
+}
+
+
+def _fail(status: int, reason: str, message: str) -> typing.NoReturn:
+    """Refuse a face request with the contract's ``{"error", "reason"}`` body.
+
+    Every failure is JSON with an enumerated ``reason``, because the panel has
+    to tell the operator *why* nothing happened: "no face in view" and "the
+    models are still loading" need different actions, and a bare status code
+    cannot say which.
+    """
+    raise _CONTRACT_ERRORS[status](
+        text=json.dumps({"error": message, "reason": reason}),
+        content_type="application/json",
+    )
+
+
+async def handle_known_faces(request: web.Request) -> web.Response:
+    """The registered face names."""
+    session: StreamSession = request.app[SESSION]
+    return web.json_response({"known": session.known_face_names()})
+
+
+async def handle_register_face(request: web.Request) -> web.Response:
+    """Register a face from the last few analysed frames."""
+    session: StreamSession = request.app[SESSION]
+    try:
+        body = await request.json()
+    except Exception:  # noqa: BLE001 - malformed body is a client error
+        _fail(400, "bad-name", "expected a JSON body with a name")
+    if not isinstance(body, dict):
+        _fail(400, "bad-name", "expected a JSON object with a name")
+
+    # Sampling runs landmarker inference on stored frames: a worker thread, so
+    # the stream and the telemetry keep being served while it works.
+    try:
+        result = await asyncio.to_thread(session.register_face, body.get("name"))
+    except FaceRequestError as exc:
+        _fail(exc.status, exc.reason, exc.message)
+
+    return web.json_response(result, status=201)
+
+
+async def handle_forget_face(request: web.Request) -> web.Response:
+    """Forget a registered face; the list is written before this answers."""
+    session: StreamSession = request.app[SESSION]
+    try:
+        result = await asyncio.to_thread(session.remove_face, request.match_info["name"])
+    except FaceRequestError as exc:
+        _fail(exc.status, exc.reason, exc.message)
+
+    return web.json_response(result)
+
+
 async def handle_emotions(request: web.Request) -> web.Response:
     """Classified facial expressions."""
+
     session: StreamSession = request.app[SESSION]
     return web.json_response(session.analysis_status()["emotions"])
 
@@ -490,6 +564,11 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
     )
     parser.add_argument("--recordings", default="recordings")
     parser.add_argument(
+        "--known-faces",
+        default=str(DEFAULT_KNOWN_FACES),
+        help="JSON file holding the registered face names and embeddings",
+    )
+    parser.add_argument(
         "--no-analysis",
         action="store_true",
         help="skip the optional face / gesture / audio analysers",
@@ -521,6 +600,7 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
             prefer_camera=not args.no_camera,
             record_dir=args.recordings,
             analysis=not args.no_analysis,
+            known_faces=args.known_faces,
         )
 
         runner = web.AppRunner(app)
