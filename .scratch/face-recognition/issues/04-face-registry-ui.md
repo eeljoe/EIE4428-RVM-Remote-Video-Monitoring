@@ -1,6 +1,6 @@
 # 04 — 注册控件与文档
 
-**Status:** ready-for-agent
+**Status:** claimed
 **Blocked by:** 01, 02, 03
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/04-face-registry-ui-selfcheck.md`）
 **UI:** yes
