@@ -63,7 +63,7 @@
 - 分组 ≥20px、分区 ≤6、去冗余框线与重复标签、画面第一焦点：`tests/test_app.py:477`（`style.css:169` 的 20+18、≤900 的 8+16、"class=\"section" 恰 5 个）、`tests/test_app.py:502`（无 `border-bottom: 1px dashed`、无渐变、无 `data-channel`、`#m-codec` 移到标题 meta）、`tests/test_app.py:529`（`.stage` 4:3、`.rail`/`.section` 不铺底）；实测桌面画面盒 904x678 = 页面最大面积。
 - 峰值虚线与 `peak x.xx Mbps` 角标（12px、灰、不新增分区、与 `history.bitrate` 最大值同源）：`tests/test_app.py:549`（`index.html:80` 角标在 STREAM 分区内、`style.css:208` 的 12px/`--muted`、`app.js:179` 的 `const peak = Math.max(...history.bitrate)` 同时喂 `app.js:225` 的角标与折线归一化、`app.js:187` 的虚线）；截图里 `peak 0.12 Mbps` 与折线上缘虚线同高。
 - 390 顺序 画面 → 控件 → FACE REGISTRY → 遥测：`tests/test_app.py:585`（`style.css:289` 的 `display: contents`、`order` 1/2/4/5）；实测 top：stage 68 → controls 353 → hint 611 → registry 656 → STREAM 861。
-- 既有 DOM ID 与八项操作、390 无横向溢出、1440 无被截断操作：`tests/test_app.py:605`（43 个 id 逐条、七个控件 + 拖拽划区）、`tests/test_app.py:639`（FACE REGISTRY 是第 4 个分区）；实测 390 `scrollWidth 390`、最右内容边 390、读数 0 条截断；1440 文档高 1000、`scrollHeight 1000`，七个操作底边 815/875 全在屏内。
+- 既有 DOM ID 与八项操作、390 无横向溢出、1440 无被截断操作：`tests/test_app.py:605`（48 个 id 逐条、七个控件 + 拖拽划区）、`tests/test_app.py:639`（FACE REGISTRY 是第 4 个分区）；实测 390 `scrollWidth 390`、最右内容边 390、读数 0 条截断；1440 文档高 1000、`scrollHeight 1000`，七个操作底边 815/875 全在屏内。
 - 无远程资源、无新增依赖、全套通过：`tests/test_app.py:87` 既有禁令不动；`pytest -q` 全绿（见 TESTS 段）。
 
 ### 2. 假设
