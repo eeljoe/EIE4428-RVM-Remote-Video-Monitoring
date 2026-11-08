@@ -1,7 +1,7 @@
 # 05 — 集成测试与探针收编
 
-Status: ready-for-agent
-Blocked by: 02, 03, 04
+**Status:** ready-for-agent
+**Blocked by:** 02, 03, 04
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/05-integration-selfcheck.md`）
 
 ## What to build

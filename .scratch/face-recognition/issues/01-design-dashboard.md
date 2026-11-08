@@ -1,7 +1,7 @@
 # 01 — 监控页设计规范（可读性与简化）
 
-Status: claimed
-Blocked by:
+**Status:** claimed
+**Blocked by:**
 真机自检：不需要
 **UI:** yes
 
@@ -99,3 +99,4 @@ Select-String -Path .scratch/face-recognition/design/v2/mock.html -Pattern '--fs
 - 新增 `docs/DESIGN-dashboard.md`,未触碰 `src/`、`tests/`、`README.md`。
 
 ## Verdicts
+2026-11-09 r1 REJECTED 0f46685 门判文档四处数值与签字 mock 不符（[spec]4 按产物缺陷改走 [impl] 返工 r2）
