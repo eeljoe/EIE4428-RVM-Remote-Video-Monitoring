@@ -1,6 +1,6 @@
 # 02 — 服务端人脸注册与持久化
 
-Status: ready-for-agent
+Status: claimed
 Blocked by:
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/02-face-registry-backend-selfcheck.md`）
 
