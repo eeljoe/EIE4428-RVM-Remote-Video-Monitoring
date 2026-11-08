@@ -1,6 +1,6 @@
 # 04 — 注册控件与文档
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 01, 02, 03
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/04-face-registry-ui-selfcheck.md`）
 **UI:** yes
@@ -157,3 +157,5 @@ GET 返回（通常几十毫秒，下一帧遥测也会纠）。攻击方式：�
   驱动页副本留在 `verifier-probes/04-selfcheck-harness.html`，并在自检文档里写明哪几张图是桩。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED f13f0dc — 全部 AC 在真实浏览器里拿到本轮新鲜证据；两条 Important 缺陷（README 一句与实现相反的描述、loadNames 晚到 GET 覆盖新名单的 stale-write）均不阻断票面判据。｜报告：.scratch/face-recognition/reports/04-r1-verifier.md｜模型路线：未标注（派发未带 --model）

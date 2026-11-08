@@ -80,3 +80,34 @@ r2:
 - 决定：≥901px 右栏加 `max-height: calc(100vh - 102px)` 与栏内滚动 / 理由：规范 §6 说明这是本票新增规则 / 影响面：仅在内容超高时生效，1440x1000 实测不触发。
 - 决定：八项操作按「七个控件 + 画面拖拽划区」计 / 理由：spec AS-5 与规范 §6 只列了七个按钮，第八项只能是 ROI 拖拽 / 影响面：测试按这八条钉住，若门另有口径只改测试一处。
 - 决定：`#record` 仍用 `active` 类驱动 `Start/Stop recording` 文案，不并入 `.seg` / 理由：既有 app.js 依赖该 class 与文案切换，改它属行为变更 / 影响面：录制态样式改走 `#record.active` 的告警色。
+
+### 票 4
+
+- 决定：五态文案逐字取票面 AC 的字面量（`no face in frame, hold still`、
+  `more than one face in frame`、`<name> is already saved`、`analysis is off`、
+  `models still loading`），不用 `DESIGN-dashboard.md` §8 的句子式写法
+  （`Two faces in frame, show one`、`... add a surname`、`Analysis is off`）。
+  / 理由：票面是唯一需求源且 AC 明写「五态文案」；DESIGN 与票面冲突以票面为准。
+  / 影响面：与 §8 的大小写和两处措辞不同，若门按 §8 比对会判不一致；改文案只动
+  `app.js:480`。
+- 决定：`REMEMBER FACE` 在预热(`pending`)与分析关闭(`disabled`)时**不置灰**，只在请求
+  在途时 `disabled`。 / 理由：票面要求「models still loading」「analysis is off」两种文案
+  能被真正触发，置灰会堵掉唯一入口；DESIGN §4.4/§8 的置灰条款因此未实施。
+  / 影响面：预热 2-3 秒内可点，点后得到一行 503 文案；没有测试钉住置灰。
+- 决定：`no-faces` 且名单为空时 Face IDs 显示 `0 faces, none known`（票面 `N faces,
+  none known` 取 N=0），名单非空时显示 `no face`。 / 理由：票面要求「名单为空且无人脸」
+  时回显人数，同时不能在有名单时谎报 none known。 / 影响面：与 03 号票的
+  `no known faces` / `no face` 不同，只影响这一行。
+- 决定：票面里「显示 `no-known-faces`」按**状态词**理解，不上屏。 / 理由：DESIGN §8
+  的五态表没有把状态词作为文案，AS-2 同句给的可见文案是 `N faces, none known`。
+  / 影响面：页面上不出现字符串 `no-known-faces`；若门要求它可见，需要新增一行文案。
+- 决定：删除成功后把状态行清空，不加「已删除」文案。 / 理由：五态表只定义注册结果，
+  票面没给删除文案，多写一句等于发明。 / 影响面：删除后回到空状态行（高度不变，
+  `.status:empty::before` 隐点）。
+- 决定：注册/删除成功后额外 `GET /api/faces/identities` 刷新 Face IDs 行。
+  / 理由：票面 AC 要「Face IDs 立刻刷新」，等遥测最多 0.5 s。 / 影响面：每次写操作多一个
+  GET，失败时静默等下一帧。
+- 决定：真机自检用**同源 iframe 驱动页**代替人工键鼠（临时文件，截图后删除）。
+  / 理由：本会话的桌面输入只能后台投递，Chromium 的 `text_input` 后台不可用、前台被拒；
+  同源 iframe 可以像人一样 `value=` + `click()` 点到真实页面。 / 影响面：产品文件未改；
+  驱动页副本留在 `verifier-probes/04-selfcheck-harness.html`，并在自检文档里写明哪几张图是桩。
