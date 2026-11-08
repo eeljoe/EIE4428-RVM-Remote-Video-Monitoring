@@ -1,0 +1,68 @@
+
+===== M1 restart does not seed the recogniser from the file =====
+src/rvm/server/session.py sha256 before: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC
+            if asyncio.iscoroutine(value):
+                value = await value
+            if value:
+                return value
+            await asyncio.sleep(0.02)
+>       raise AssertionError(f"timed out after {timeout}s waiting for {description}")
+E       AssertionError: timed out after 15.0s waiting for 'Alice Ng' to be recognised
+
+tests\test_integration_faces.py:82: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_integration_faces.py::test_a_face_is_registered_recognised_across_a_restart_and_forgotten
+1 failed in 17.36s
+exit code: 1
+src/rvm/server/session.py sha256 after restore: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC  (identical: True)
+
+===== M2 publishing a change does not write the file =====
+src/rvm/server/session.py sha256 before: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: 'C:\\Users\\joe\\AppData\\Local\\Temp\\pytest-of-joe\\pytest-544\\test_a_face_is_registered_reco0\\data\\known_faces.json'
+
+C:\ProgramData\miniconda3\Lib\pathlib\_local.py:537: FileNotFoundError
+=========================== short test summary info ===========================
+FAILED tests/test_integration_faces.py::test_a_face_is_registered_recognised_across_a_restart_and_forgotten
+1 failed in 1.14s
+exit code: 1
+src/rvm/server/session.py sha256 after restore: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC  (identical: True)
+
+===== M3 a refused registration publishes anyway =====
+src/rvm/server/session.py sha256 before: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC
+  File "C:\ProgramData\miniconda3\Lib\asyncio\threads.py", line 25, in to_thread
+    return await loop.run_in_executor(None, func_call)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\ProgramData\miniconda3\Lib\concurrent\futures\thread.py", line 59, in run
+    result = self.fn(*self.args, **self.kwargs)
+  File "C:\Users\joe\Desktop\工作学习\study 2026-2027 sem1\EIE4428-Multimedia-Communications\mini-project\EIE4428-RVM\EIE4428-RVM\src\rvm\server\session.py", line 665, in register_face
+    embeddings.append(faces[0])
+                      ~~~~~^^^
+IndexError: list index out of range
+=========================== short test summary info ===========================
+FAILED tests/test_integration_faces.py::test_a_refused_registration_leaves_the_file_alone_and_the_server_working
+1 failed in 1.28s
+exit code: 1
+src/rvm/server/session.py sha256 after restore: 3011D369BC273D63F85A73A9EA5CEE765AFC3AAFD4A94C2BFF85C21B03A13FCC  (identical: True)
+
+===== M4 --known-faces is dropped on the floor =====
+src/rvm/server/app.py sha256 before: 6EA20C051084FADFDF998B5A852282B4E10D5F46C1C3D2F8CC2E5B67181CB926
+        with ServerProcess(tmp_path, registry) as first:
+>           assert first.known() == {"known": ["Alice Ng", "Bob"]}
+E           AssertionError: assert {'known': []} == {'known': ['Alice Ng', 'Bob']}
+E             
+E             Differing items:
+E             {'known': []} != {'known': ['Alice Ng', 'Bob']}
+E             Use -v to get more diff
+
+tests\test_integration_faces.py:274: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_integration_faces.py::test_real_processes_carry_the_registry_and_survive_a_corrupt_one
+1 failed in 2.06s
+exit code: 1
+src/rvm/server/app.py sha256 after restore: 6EA20C051084FADFDF998B5A852282B4E10D5F46C1C3D2F8CC2E5B67181CB926  (identical: True)

@@ -1,0 +1,496 @@
+{
+  "base": "http://127.0.0.1:8137",
+  "worktree": "C:\\Users\\joe\\AppData\\Local\\Temp\\verify-03-verify-218c7ad",
+  "expected_peak_tag": "peak 2.50 Mbps",
+  "bitrate_sequence": [
+    1000000,
+    1100000,
+    900000,
+    1300000,
+    1000000,
+    2500000,
+    700000,
+    720000,
+    690000,
+    710000,
+    700000,
+    705000,
+    695000,
+    700000
+  ],
+  "static": {
+    "provenance": {
+      "served_bytes_equal_worktree": {
+        "index.html": false,
+        "style.css": false,
+        "app.js": false
+      },
+      "sha256": {
+        "index.html": "03f8a952593e359ba3fdd0613b92bac81a0410db1877fc803582cb95f5f08738",
+        "style.css": "d80f93e69340e13b27f3e70a8b3664f43ef1479feecbf356b06c7a4bedf8d8fd",
+        "app.js": "f1f2f2c23e8cc01e78c7c21aaf2cd6c6bc93d275dada01416993130006557950"
+      }
+    },
+    "tokens": {
+      "--bg": "#0b0d0e",
+      "--panel": "#101416",
+      "--text": "#e9eef0",
+      "--text-2": "#c3ccd0",
+      "--muted": "#9aa5aa",
+      "--placeholder": "#7d888d",
+      "--fs-label": "13px",
+      "--fs-body": "15px"
+    },
+    "contrast": {
+      "muted_on_bg": 7.73,
+      "text_on_bg": 16.65,
+      "text2_on_bg": 11.94,
+      "placeholder_on_panel": 5.1,
+      "text_on_panel": 15.84,
+      "alarm_on_bg": 6.69,
+      "accent_on_bg": 10.78,
+      "ok_on_bg": 9.83,
+      "warn_on_bg": 10.16,
+      "on_accent_on_accent": 8.97
+    },
+    "font_sizes_declared_px": [
+      12,
+      14,
+      15,
+      16,
+      20
+    ],
+    "min_font_px": 12,
+    "fs_label_media560": true,
+    "fs_label_uses": 13,
+    "line_height_15_count": 15,
+    "section_attrs": [
+      "class=\"section\"",
+      "class=\"section\"",
+      "class=\"section\"",
+      "class=\"section registry\"",
+      "class=\"section\""
+    ],
+    "section_count": 5,
+    "h2_titles": [
+      "StreamRVM1 &middot; H.264-style hybrid",
+      "Transport",
+      "Analysis",
+      "Face registry",
+      "Clips"
+    ],
+    "group_gap_px": {
+      "desktop_margin": 20,
+      "desktop_padding": 18,
+      "mobile_margin": 8,
+      "mobile_padding": 16
+    },
+    "ids_missing": [],
+    "stream_img_tag": "<img id=\"stream\" src=\"/api/stream.mjpg\" alt=\"Live camera feed\" aria-describedby=\"zone-help\" />",
+    "stream_inline_mjpg": true,
+    "remote_refs": {
+      "html_src_href": [],
+      "css_url": [],
+      "css_import": [],
+      "js_remote_literal": []
+    },
+    "registry_is_section4": true,
+    "no_dashed_row_borders": true,
+    "no_gradients": true,
+    "no_data_channel": true,
+    "peak_same_source": {
+      "single_peak_var": true,
+      "trace_normalised_by_peak": true,
+      "tag_written_from_peak": true,
+      "dashed_3_3": true,
+      "rule_colour_muted_half": true,
+      "tag_format_peak_x_xx_mbps": true,
+      "peak_inside_stream_section": true,
+      "peak_uses_fs_label_free_12px": true,
+      "peak_muted": true
+    },
+    "order_rules_900": {
+      "\\.stage": true,
+      "\\.controls": true,
+      "\\.hint": true,
+      "\\.registry": true,
+      "\\.section": true
+    },
+    "display_contents_900": true,
+    "rail_self_scroll_rule": true,
+    "readouts_mobile_single_col": true
+  },
+  "copy_edits": [
+    "A: the /static/style.css link becomes the same bytes in a <style> block; app.js is dropped (every style/geometry number is a function of markup+CSS)",
+    "B: CSS inlined identically; app.js inlined after a stub WebSocket/fetch that feeds 14 scripted status frames (bitrate max 2.5 Mbps mid-window, tail ~0.7); the stream img src becomes a 1px data GIF and the onerror retry is cleared after app.js runs (file:// can never load /api/stream.mjpg)"
+  ],
+  "desktop_1440x1000": {
+    "viewport": [
+      1440,
+      1000
+    ],
+    "scrollWidth": 1440,
+    "scrollHeight": 1000,
+    "clientWidth": 1440,
+    "fonts": {
+      "body": "15px|22.5px",
+      "label_dt": "13px|19.5px",
+      "value_dd": "15px|22.5px",
+      "heading_h2": "13px|19.5px",
+      "meta_codec": "13px|19.5px",
+      "peak": "12px|18px",
+      "osd": "12px|18px",
+      "button_apply": "15px|22.5px",
+      "primary_remember": "13px|19.5px",
+      "status": "13px|19.5px",
+      "hint": "13px|19.5px",
+      "empty_clips": "13px|19.5px",
+      "input_face": "15px|22.5px",
+      "select_bitrate": "15px|22.5px",
+      "reg_label": "13px|19.5px",
+      "clip_name_style_exists": false
+    },
+    "colors": {
+      "body_bg": "rgb(11, 13, 14)",
+      "label": "rgb(154, 165, 170)",
+      "value": "rgb(233, 238, 240)",
+      "heading": "rgb(195, 204, 208)",
+      "peak": "rgb(154, 165, 170)",
+      "empty": "rgb(154, 165, 170)"
+    },
+    "tops": {
+      ".stage": [
+        76,
+        754
+      ],
+      ".controls": [
+        774,
+        875
+      ],
+      ".hint": [
+        895,
+        915
+      ],
+      "#face-registry": [
+        599,
+        785
+      ]
+    },
+    "sections": [
+      {
+        "title": "StreamRVM1 \u00b7 H.264-style hybrid",
+        "top": 76
+      },
+      {
+        "title": "Transport",
+        "top": 242
+      },
+      {
+        "title": "Analysis",
+        "top": 392
+      },
+      {
+        "title": "Face registry",
+        "top": 599
+      },
+      {
+        "title": "Clips",
+        "top": 805
+      }
+    ],
+    "controls": [
+      {
+        "id": "apply",
+        "top": 774,
+        "bottom": 815,
+        "right": 300
+      },
+      {
+        "id": "clear-roi",
+        "top": 774,
+        "bottom": 815,
+        "right": 668
+      },
+      {
+        "id": "view-source",
+        "top": 835,
+        "bottom": 875,
+        "right": 110
+      },
+      {
+        "id": "view-decoded",
+        "top": 835,
+        "bottom": 875,
+        "right": 270
+      },
+      {
+        "id": "snapshot",
+        "top": 835,
+        "bottom": 875,
+        "right": 433
+      },
+      {
+        "id": "record",
+        "top": 835,
+        "bottom": 875,
+        "right": 573
+      },
+      {
+        "id": "metrics",
+        "top": 835,
+        "bottom": 875,
+        "right": 709
+      }
+    ],
+    "stage_wh": [
+      904,
+      678
+    ],
+    "rail_wh": [
+      460,
+      809
+    ],
+    "group_gap": [
+      20,
+      18
+    ],
+    "truncated_dd": [],
+    "peak_truncated": false,
+    "widest_right": 1440
+  },
+  "mobile_390x844": {
+    "viewport": [
+      390,
+      844
+    ],
+    "scrollWidth": 390,
+    "scrollHeight": 1721,
+    "clientWidth": 390,
+    "fonts": {
+      "body": "15px|22.5px",
+      "label_dt": "14px|21px",
+      "value_dd": "15px|22.5px",
+      "heading_h2": "14px|21px",
+      "meta_codec": "14px|21px",
+      "peak": "12px|18px",
+      "osd": "12px|18px",
+      "button_apply": "15px|22.5px",
+      "primary_remember": "14px|21px",
+      "status": "14px|21px",
+      "hint": "14px|21px",
+      "empty_clips": "14px|21px",
+      "input_face": "15px|22.5px",
+      "select_bitrate": "15px|22.5px",
+      "reg_label": "14px|21px",
+      "clip_name_style_exists": false
+    },
+    "colors": {
+      "body_bg": "rgb(11, 13, 14)",
+      "label": "rgb(154, 165, 170)",
+      "value": "rgb(233, 238, 240)",
+      "heading": "rgb(195, 204, 208)",
+      "peak": "rgb(154, 165, 170)",
+      "empty": "rgb(154, 165, 170)"
+    },
+    "tops": {
+      ".stage": [
+        68,
+        337
+      ],
+      ".controls": [
+        353,
+        595
+      ],
+      ".hint": [
+        611,
+        632
+      ],
+      "#face-registry": [
+        656,
+        845
+      ]
+    },
+    "sections": [
+      {
+        "title": "StreamRVM1 \u00b7 H.264-style hybrid",
+        "top": 861
+      },
+      {
+        "title": "Transport",
+        "top": 1089
+      },
+      {
+        "title": "Analysis",
+        "top": 1328
+      },
+      {
+        "title": "Face registry",
+        "top": 656
+      },
+      {
+        "title": "Clips",
+        "top": 1624
+      }
+    ],
+    "controls": [
+      {
+        "id": "apply",
+        "top": 353,
+        "bottom": 393,
+        "right": 374
+      },
+      {
+        "id": "clear-roi",
+        "top": 403,
+        "bottom": 444,
+        "right": 374
+      },
+      {
+        "id": "view-source",
+        "top": 454,
+        "bottom": 494,
+        "right": 190
+      },
+      {
+        "id": "view-decoded",
+        "top": 454,
+        "bottom": 494,
+        "right": 374
+      },
+      {
+        "id": "snapshot",
+        "top": 504,
+        "bottom": 545,
+        "right": 190
+      },
+      {
+        "id": "record",
+        "top": 504,
+        "bottom": 545,
+        "right": 374
+      },
+      {
+        "id": "metrics",
+        "top": 555,
+        "bottom": 595,
+        "right": 374
+      }
+    ],
+    "stage_wh": [
+      358,
+      269
+    ],
+    "rail_wh": [
+      0,
+      0
+    ],
+    "group_gap": [
+      8,
+      16
+    ],
+    "truncated_dd": [],
+    "peak_truncated": false,
+    "widest_right": 390
+  },
+  "telemetry_390": {
+    "viewport": [
+      390,
+      844
+    ],
+    "history_len": 14,
+    "history_max_bps": 2500000,
+    "history_last_bps": 700000,
+    "peak_text": "peak 2.50 Mbps",
+    "bitrate_text": "700 kbps",
+    "canvas_backing": [
+      358,
+      30
+    ],
+    "canvas_css": [
+      358,
+      30
+    ],
+    "grey_dash_rows": [
+      6
+    ],
+    "accent_top_row": 9,
+    "accent_row_counts": {
+      "9": 1,
+      "10": 2,
+      "11": 3,
+      "12": 4,
+      "13": 4,
+      "14": 3,
+      "15": 4,
+      "16": 2,
+      "17": 4,
+      "18": 8,
+      "19": 21,
+      "20": 15,
+      "21": 14,
+      "22": 43
+    },
+    "aria": "Recent video bitrate history, scaled to a peak of 2.50 Mbps",
+    "conn": "live",
+    "scrollWidth": 390,
+    "clientWidth": 390
+  },
+  "telemetry_1440": {
+    "viewport": [
+      1440,
+      1000
+    ],
+    "history_len": 14,
+    "history_max_bps": 2500000,
+    "history_last_bps": 700000,
+    "peak_text": "peak 2.50 Mbps",
+    "bitrate_text": "700 kbps",
+    "canvas_backing": [
+      460,
+      30
+    ],
+    "canvas_css": [
+      460,
+      30
+    ],
+    "grey_dash_rows": [
+      6
+    ],
+    "accent_top_row": 10,
+    "accent_row_counts": {
+      "10": 2,
+      "11": 4,
+      "12": 3,
+      "13": 4,
+      "14": 3,
+      "15": 3,
+      "16": 4,
+      "17": 4,
+      "18": 10,
+      "19": 26,
+      "20": 20,
+      "21": 17,
+      "22": 55
+    },
+    "aria": "Recent video bitrate history, scaled to a peak of 2.50 Mbps",
+    "conn": "live",
+    "scrollWidth": 1440,
+    "clientWidth": 1440
+  },
+  "shot_desktop": {
+    "path": "C:\\Users\\joe\\Desktop\\\u5de5\u4f5c\u5b66\u4e60\\study 2026-2027 sem1\\EIE4428-Multimedia-Communications\\mini-project\\EIE4428-RVM\\EIE4428-RVM\\.scratch\\face-recognition\\verifier-probes\\03-verifier-desktop-1440x1000.png",
+    "size": [
+      1440,
+      1000
+    ],
+    "settle_s": 34.5
+  },
+  "shot_mobile": {
+    "path": "C:\\Users\\joe\\Desktop\\\u5de5\u4f5c\u5b66\u4e60\\study 2026-2027 sem1\\EIE4428-Multimedia-Communications\\mini-project\\EIE4428-RVM\\EIE4428-RVM\\.scratch\\face-recognition\\verifier-probes\\03-verifier-mobile-390x844.png",
+    "size": [
+      390,
+      844
+    ],
+    "settle_s": 33.7
+  }
+}

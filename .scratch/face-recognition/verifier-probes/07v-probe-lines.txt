@@ -1,0 +1,13 @@
+07v-dom-delx.html: V07PROBE delx :: status="" class="status" disabled=false list="&lt;img src=x onerror=window.__pwned=1&gt;" ids="no face" before=["&lt;img src=x onerror=window.__pwned=1&gt;","Alice Ng"] after=["&lt;img src=x onerror=window.__pwned=1&gt;"]
+07v-dom-firstload.html: V07PROBE firstload :: status="" class="status" disabled=false list="&lt;img src=x onerror=window.__pwned=1&gt; | Alice Ng" ids="no face"
+07v-dom-loadingclick.html: V07PROBE loadingclick :: status="no face in frame, hold still" class="status err" disabled=false list="No names saved yet" ids="0 faces, none known"
+07v-dom-loadingclick2.html: V07PROBE loadingclick :: status="models still loading" class="status" disabled=false list="No names saved yet" ids="loading"
+07v-dom-mobile.html: V07PROBE mobile :: scrollW=390 clientW=390 regOrder=4 regTop=656 disabled=false list="No names saved yet" ids="0 faces, none known"
+07v-dom-noface.html: V07PROBE noface :: status="no face in frame, hold still" class="status err" disabled=false list="No names saved yet" ids="0 faces, none known"
+07v-dom-offclick.html: V07PROBE offclick :: status="analysis is off" class="status" disabled=false list="No names saved yet" ids="off"
+07v-dom-race-green.html: V07PROBE race :: status="Saved as Race Person, 3 frames averaged" class="status ok" disabled=false list="Race Person" ids="no face" (green=list keeps Race Person; red=list=No names saved yet)
+07v-dom-race-red-old.html: V07PROBE race :: status="Saved as Race Person, 3 frames averaged" class="status ok" disabled=false list="No names saved yet" ids="no face" (green=list keeps Race Person; red=list=No names saved yet)
+07v-dom-racedel.html: V07PROBE racedel :: status="" class="status" disabled=false list="&lt;img src=x onerror=window.__pwned=1&gt;" ids="no face" before=["&lt;img src=x onerror=window.__pwned=1&gt;","Alice Ng"] after=["&lt;img src=x onerror=window.__pwned=1&gt;"] (green=list keeps post-delete; red=deleted row resurrected)
+07v-dom-stubdup.html: V07PROBE stubdup :: status="Alice Ng is already saved" class="status warn" disabled=false list="No names saved yet" ids="0 faces, none known"
+07v-dom-stubmulti.html: V07PROBE stubmulti :: status="more than one face in frame" class="status err" disabled=false list="No names saved yet" ids="0 faces, none known"
+07v-dom-stubok.html: V07PROBE stubok :: status="Saved as Stub Person, 3 frames averaged" class="status ok" disabled=false list="Alice Ng | Stub Person" ids="no face"

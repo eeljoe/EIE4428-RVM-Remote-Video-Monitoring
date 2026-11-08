@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin:0; background:#000; }
+  #bar { min-height:20px; background:#7ee787; color:#000; font:12px/1.5 monospace;
+         padding:4px 8px; white-space:pre-wrap; word-break:break-all; }
+  #f { width:100%; height:calc(100vh - 28px); border:0; display:block; }
+</style>
+</head><body><div id="bar">V07PROBE delx :: status="" class="status" disabled=false list="&lt;img src=x onerror=window.__pwned=1&gt;" ids="no face" before=["&lt;img src=x onerror=window.__pwned=1&gt;","Alice Ng"] after=["&lt;img src=x onerror=window.__pwned=1&gt;"]</div>
+<iframe id="f" src="/"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const caz = q.get("case") || "firstload";
+const f = document.getElementById("f");
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const el = (w, id) => w.document.getElementById(id);
+const txt = (w, id) => { const n = el(w, id); return n ? n.textContent : "<missing:" + id + ">"; };
+const listText = (w) => {
+  const ul = el(w, "face-list");
+  if (!ul) return "<missing:face-list>";
+  return Array.from(ul.querySelectorAll("li .who, li.empty")).map((n) => n.textContent).join(" | ");
+};
+const btnState = (w) => {
+  const b = el(w, "face-remember");
+  return b ? ("disabled=" + b.disabled) : "<missing:face-remember>";
+};
+
+async function runCase() {
+  const w = f.contentWindow;
+  const realFetch = w.fetch.bind(w);
+  const tick = () => realFetch("/api/faces/identities").catch(() => null); // real-time pacer
+  const until = async (cond, tries = 600) => {
+    for (let i = 0; i < tries; i++) {
+      const v = cond();
+      if (v) return v;
+      await tick();
+    }
+    return null;
+  };
+  const postStub = (status, body) => {
+    w.fetch = (url, opts = {}) => {
+      if (opts.method === "POST") {
+        return Promise.resolve(new w.Response(JSON.stringify(body), {
+          status: status, headers: { "Content-Type": "application/json" } }));
+      }
+      return realFetch(url, opts);
+    };
+  };
+  // Delay a real GET's *delivery* by 400 ms: the underlying fetch still fires
+  // now (server answers with the pre-write state), the caller sees it late.
+  const slowGet = () => {
+    w.fetch = (url, opts = {}) => {
+      if (!opts.method && String(url).indexOf("/api/faces/known") === 0) {
+        return new Promise((res) => w.setTimeout(() => res(realFetch(url, opts)), 400));
+      }
+      if (opts.method === "POST") {
+        return Promise.resolve(new w.Response(JSON.stringify(
+          { name: "Race Person", samples: 3, known: ["Race Person"] }),
+          { status: 201, headers: { "Content-Type": "application/json" } }));
+      }
+      return realFetch(url, opts);
+    };
+  };
+  const report = (tag, extra) => bar("V07PROBE " + tag + " :: status=" +
+    JSON.stringify(txt(w, "face-status")) +
+    " class=" + JSON.stringify(el(w, "face-status") ? el(w, "face-status").className : "?") +
+    " " + btnState(w) +
+    " list=" + JSON.stringify(listText(w)) +
+    " ids=" + JSON.stringify(txt(w, "m-identities")) + (extra || ""));
+  try {
+    if (caz === "firstload") {
+      // Ordinary first render must not be swallowed by the stamp.
+      await until(() => el(w, "face-list") && el(w, "face-list").children.length > 0);
+      await w.refreshIdentities();
+      await until(() => txt(w, "m-identities") !== "-");
+      report("firstload");
+    } else if (caz === "race") {
+      // Repro of 04 FINDINGS-2: startup-style GET delivered late vs instant
+      // stubbed 201. Fixed code: list stays "Race Person". Old: "No names saved yet".
+      await until(() => el(w, "face-list") && el(w, "face-list").children.length > 0);
+      slowGet();
+      w.loadNames();                       // this GET resolves 400 ms late
+      el(w, "face-name").value = "Race Person";
+      el(w, "face-remember").click();      // stubbed 201 lands first
+      await until(() => txt(w, "face-status"), 2000);
+      for (let i = 0; i < 80; i++) await tick();   // let the late GET land
+      report("race", " (green=list keeps Race Person; red=list=No names saved yet)");
+    } else if (caz === "racedel") {
+      // Same stale-read shape on the delete path: delayed GET captured the
+      // pre-delete list while the real DELETE already answered post-delete.
+      await until(() => el(w, "face-list") && el(w, "face-list").querySelectorAll("button.x").length >= 2);
+      const before = (await (await realFetch("/api/faces/known")).json()).known;
+      w.fetch = (url, opts = {}) => {
+        if (!opts.method && String(url).indexOf("/api/faces/known") === 0) {
+          return new Promise((res) => w.setTimeout(() => res(realFetch(url, opts)), 400));
+        }
+        return realFetch(url, opts);       // DELETE passes through to the real server
+      };
+      w.loadNames();                       // captures pre-delete list, delivered late
+      const row = Array.from(el(w, "face-list").querySelectorAll("li")).find(
+        (li) => li.querySelector(".who") && li.querySelector(".who").textContent === "Alice Ng");
+      if (!row) { bar("V07PROBE racedel :: ERROR no Alice row"); return; }
+      row.querySelector("button.x").click();   // real DELETE of Alice Ng
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === before.length - 1);
+      for (let i = 0; i < 80; i++) await tick();  // let the late GET land
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      report("racedel", " before=" + JSON.stringify(before) + " after=" + JSON.stringify(after) +
+        " (green=list keeps post-delete; red=deleted row resurrected)");
+    } else if (caz === "delx") {
+      // Real end-to-end delete through the x button.
+      await until(() => el(w, "face-list") && el(w, "face-list").querySelectorAll("button.x").length >= 2);
+      const before = (await (await realFetch("/api/faces/known")).json()).known;
+      const row = Array.from(el(w, "face-list").querySelectorAll("li")).find(
+        (li) => li.querySelector(".who") && li.querySelector(".who").textContent === "Alice Ng");
+      if (!row) { bar("V07PROBE delx :: ERROR no Alice row"); return; }
+      row.querySelector("button.x").click();
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === before.length - 1);
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      report("delx", " before=" + JSON.stringify(before) + " after=" + JSON.stringify(after));
+    } else if (caz === "offclick") {
+      // Real click on a --no-analysis server: proves the button is NOT greyed
+      // in the disabled state, and yields the real 503 copy.
+      el(w, "face-name").value = "Verifier Ng";
+      el(w, "face-remember").click();
+      await until(() => txt(w, "face-status"), 2000);
+      report("offclick");
+    } else if (caz === "loadingclick") {
+      // clickfast already pressed the button inside warmup; just collect.
+      await until(() => txt(w, "face-status"), 2000);
+      report("loadingclick");
+    } else if (caz === "noface") {
+      // Real POST on a synthetic scene: real 409 no-face.
+      el(w, "face-name").value = "Verifier Ng";
+      el(w, "face-remember").click();
+      await until(() => txt(w, "face-status"), 2000);
+      report("noface");
+    } else if (caz === "stubok" || caz === "stubmulti" || caz === "stubdup") {
+      // Wait for the page's own first render so the stub does not race the
+      // startup GET (races live in race/racedel).
+      await until(() => el(w, "face-list") && el(w, "face-list").children.length > 0);
+      const bodies = {
+        stubok:    [201, { name: "Stub Person", samples: 3, known: ["Alice Ng", "Stub Person"] }],
+        stubmulti: [409, { error: "x", reason: "multiple-faces" }],
+        stubdup:   [409, { error: "x", reason: "name-exists" }],
+      };
+      const [st, body] = bodies[caz];
+      postStub(st, body);
+      el(w, "face-name").value = caz === "stubdup" ? "Alice Ng" : "Verifier Ng";
+      el(w, "face-remember").click();
+      await until(() => txt(w, "face-status"), 2000);
+      if (caz === "stubok") await w.refreshIdentities();
+      report(caz);
+    } else if (caz === "mobile") {
+      // Chromium will not shrink a window to 390 CSS px; pin the iframe itself
+      // so the media queries evaluate against a real 390 viewport.
+      f.style.width = "390px";
+      f.style.height = "844px";
+      f.style.position = "absolute";
+      f.style.left = "0";
+      f.style.top = "28px";
+      document.body.style.width = "390px";
+      await until(() => el(w, "face-list") && el(w, "face-list").children.length > 0);
+      await w.refreshIdentities();
+      const d = w.document;
+      const reg = d.querySelector(".registry");
+      bar("V07PROBE mobile :: scrollW=" + d.documentElement.scrollWidth +
+          " clientW=" + d.documentElement.clientWidth +
+          " regOrder=" + (reg ? w.getComputedStyle(reg).order : "?") +
+          " regTop=" + (reg ? Math.round(reg.getBoundingClientRect().top) : "?") +
+          " " + btnState(w) +
+          " list=" + JSON.stringify(listText(w)) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else {
+      bar("V07PROBE unknown case " + caz);
+    }
+  } catch (e) {
+    bar("V07PROBE " + caz + " ERROR :: " + e.message);
+  }
+}
+
+if (caz === "loadingclick") {
+  // Poll for the wired button and press it the instant app.js ran, so the POST
+  // lands inside the server-side model warmup window (the MJPEG <img> delays
+  // the iframe load event past that window).
+  (async () => {
+    const w0 = f.contentWindow;
+    const rf = w0.fetch.bind(w0);
+    for (let i = 0; i < 900; i++) {
+      try {
+        const d = w0.document;
+        const b = d && d.getElementById && d.getElementById("face-remember");
+        if (b && b.onclick) {
+          d.getElementById("face-name").value = "Verifier Ng";
+          b.click();
+          break;
+        }
+      } catch (e) { /* document mid-navigation */ }
+      await rf("/api/faces/known").catch(() => null);
+    }
+    runCase();
+  })();
+} else {
+  f.addEventListener("load", runCase);
+}
+</script>
+</body></html>

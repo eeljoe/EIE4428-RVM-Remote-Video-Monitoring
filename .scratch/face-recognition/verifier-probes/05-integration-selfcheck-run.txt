@@ -1,0 +1,15 @@
+PASS  analysis reported ready before the probe registered  -- features={'enabled': True, 'ready': True, 'face_recognition': True, 'emotion_recognition': True, 'gesture_recognition': True, 'audio_monitoring': False, 'audio_available': True}
+PASS  the picture pump is running  -- frames=12
+PASS  registering with no face in view is refused and writes nothing  -- status=409 body={'error': 'no face was found in the recent frames', 'reason': 'no-face'} registry_exists=False
+PASS  the same server still answers after the refusal  -- known={'known': []}
+PASS  forgetting an unknown name is a 404 with the contract body  -- status=404 body={'error': "'Nobody' is not registered", 'reason': 'bad-name'}
+PASS  the server shut down without a traceback  -- 00:00:1794168877.007201   28764 landmark_projection_calculator.cc:81] Using NORM_RECT without IMAGE_DIMENSIONS is only supported for the square ROI. Provide IMAGE_DIMENSIONS or use PROJECTION_MATRIX.
+
+PASS  --known-faces list is served by the first process  -- known={'known': ['Alice Ng']}
+PASS  a second process serves the same list  -- known={'known': ['Alice Ng']}
+PASS  DELETE answers with the contract body  -- status=200 body={'removed': True, 'known': []}
+PASS  the deletion reached the file before the reply  -- disk faces={}
+PASS  a third process starts from the emptied file  -- known={'known': []}
+
+11 passed, 0 failed
+workdir: C:\Users\joe\AppData\Local\Temp\rvm05-selfcheck-ujw8faak

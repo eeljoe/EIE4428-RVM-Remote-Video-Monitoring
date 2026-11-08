@@ -1,0 +1,16 @@
+click :: PROBE click :: status="no face in frame, hold still" class="status err" list="No names saved yet" ids="0 faces, none known"
+clickempty :: PROBE clickempty :: status="the name must not be empty" class="status err"
+delete :: PROBE delete :: before=["&lt;img src=x onerror=window.__pwned=1&gt;","Alice Ng","Bob O'Neil \"Q\""] after=["Alice Ng","Bob O'Neil \"Q\""] listNow="Alice Ng | Bob O'Neil \"Q\"" status="" ids="no face"
+deletexss :: PROBE deletexss :: ERROR row not found
+delname :: PROBE delname :: removed="Bob O'Neil \"Q\"" before=["Alice Ng","Bob O'Neil \"Q\""] after=["Alice Ng"] listNow="Alice Ng"
+empty :: PROBE empty :: input=true btn=true btnText="REMEMBER FACE" status="" list="No names saved yet" xButtons=0 ids="0 faces, none known"
+list :: PROBE list :: rows=3 xButtons=3 names="&lt;img src=x onerror=window.__pwned=1&gt; | Alice Ng | Bob O'Neil \"Q\"" injectedElems=0 firstWho="&lt;span class=\"who\"&gt;&amp;lt;img src=x onerror=window.__pwned=1&amp;gt;&lt;/span&gt;" pwned=0 ids="no face"
+loading :: PROBE clickfast :: status="models still loading" class="status" list="No names saved yet" ids="loading"
+mobile390 :: PROBE mobile :: scrollW=390 clientW=390 regOrder=4 regTop=656 status="" list="Alice Ng" ids="no face"
+race :: PROBE race :: status="Saved as Race Person, 3 frames averaged" list="No names saved yet" ids="0 faces, none known" (expect list=Race Person if fresh write wins; 'No names saved yet' if stale GET clobbered it)
+real-off :: PROBE click :: status="analysis is off" class="status" list="No names saved yet" ids="off"
+stub-dup :: PROBE stub-dup :: status="Alice Ng is already saved" class="status warn" list="No names saved yet" ids="0 faces, none known"
+stub-loading :: PROBE stub-loading :: status="models still loading" class="status" list="No names saved yet" ids="0 faces, none known"
+stub-multi :: PROBE stub-multi :: status="more than one face in frame" class="status err" list="No names saved yet" ids="0 faces, none known"
+stub-ok :: PROBE stub-ok :: status="Saved as Stub Person, 3 frames averaged" class="status ok" list="Alice Ng | Stub Person" ids="no face"
+subthresh :: PROBE subthresh :: ids="Low Conf · 0.59"

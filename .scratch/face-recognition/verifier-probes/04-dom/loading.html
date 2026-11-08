@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin:0; background:#000; }
+  #bar { min-height:20px; background:#ffee58; color:#000; font:12px/1.5 monospace;
+         padding:4px 8px; white-space:pre-wrap; word-break:break-all; }
+  #f { width:100%; height:calc(100vh - 28px); border:0; display:block; }
+</style>
+</head><body><div id="bar">PROBE clickfast :: status="models still loading" class="status" list="No names saved yet" ids="loading"</div>
+<iframe id="f" src="/"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const caz = q.get("case") || "empty";
+const f = document.getElementById("f");
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const el = (w, id) => w.document.getElementById(id);
+const txt = (w, id) => { const n = el(w, id); return n ? n.textContent : "<missing:" + id + ">"; };
+const listText = (w) => {
+  const ul = el(w, "face-list");
+  if (!ul) return "<missing:face-list>";
+  return Array.from(ul.querySelectorAll("li .who, li.empty")).map((n) => n.textContent).join(" | ");
+};
+
+async function runCase() {
+  const w = f.contentWindow;
+  const realFetch = w.fetch.bind(w);
+  const tick = () => realFetch("/api/faces/known").catch(() => null); // real-time pacer
+  const stub = (status, body) => {
+    w.fetch = (url, opts = {}) => {
+      if (opts.method === "POST") {
+        return Promise.resolve(new w.Response(JSON.stringify(body), {
+          status: status,
+          headers: { "Content-Type": "application/json" },
+        }));
+      }
+      return realFetch(url, opts);
+    };
+  };
+  // wait until cond() is truthy, paced by real fetches (~ms each)
+  const until = async (cond, tries = 400) => {
+    for (let i = 0; i < tries; i++) {
+      const v = cond();
+      if (v) return v;
+      await tick();
+    }
+    return null;
+  };
+  const clickRemember = async (w, name) => {
+    el(w, "face-name").value = name;
+    el(w, "face-remember").click();
+    await until(() => (txt(w, "face-status") ? true : null));
+  };
+  try {
+    if (caz === "empty") {
+      await until(() => el(w, "face-list").children.length > 0);
+      await w.refreshIdentities();
+      await until(() => txt(w, "m-identities") !== "-");
+      bar("PROBE empty :: input=" + !!el(w, "face-name") +
+          " btn=" + !!el(w, "face-remember") + " btnText=" + JSON.stringify(el(w, "face-remember").textContent.trim()) +
+          " status=" + JSON.stringify(txt(w, "face-status")) +
+          " list=" + JSON.stringify(listText(w)) +
+          " xButtons=" + el(w, "face-list").querySelectorAll("button.x").length +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "click" || caz === "clickfast") {
+      if (caz === "click") await clickRemember(w, "Verifier Ng");
+      // clickfast: the early poller below already pressed the button
+      await until(() => (txt(w, "face-status") ? true : null));
+      await w.refreshIdentities();
+      bar("PROBE " + caz + " :: status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(el(w, "face-status").className) +
+          " list=" + JSON.stringify(listText(w)) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "list") {
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length >= 3);
+      await w.refreshIdentities();
+      await until(() => txt(w, "m-identities") !== "-");
+      const injected = el(w, "face-list").querySelectorAll("img,svg,b,script").length;
+      const whoHtml = el(w, "face-list").querySelector(".who").outerHTML;
+      bar("PROBE list :: rows=" + el(w, "face-list").querySelectorAll("li").length +
+          " xButtons=" + el(w, "face-list").querySelectorAll("button.x").length +
+          " names=" + JSON.stringify(listText(w)) +
+          " injectedElems=" + injected +
+          " firstWho=" + JSON.stringify(whoHtml) +
+          " pwned=" + (w.__pwned || 0) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "delete") {
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length >= 3);
+      const before = (await (await realFetch("/api/faces/known")).json()).known;
+      el(w, "face-list").querySelector("button.x").click();
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === before.length - 1);
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      await w.refreshIdentities();
+      bar("PROBE delete :: before=" + JSON.stringify(before) +
+          " after=" + JSON.stringify(after) +
+          " listNow=" + JSON.stringify(listText(w)) +
+          " status=" + JSON.stringify(txt(w, "face-status")) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "delname") {
+      const target = q.get("name");
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length >= 1);
+      const before = (await (await realFetch("/api/faces/known")).json()).known;
+      const row = Array.from(el(w, "face-list").querySelectorAll("li")).find(
+        (li) => li.querySelector(".who") && li.querySelector(".who").textContent === target);
+      if (!row) { bar("PROBE delname :: ERROR row not found for " + JSON.stringify(target)); return; }
+      row.querySelector("button.x").click();
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === before.length - 1);
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      bar("PROBE delname :: removed=" + JSON.stringify(target) +
+          " before=" + JSON.stringify(before) +
+          " after=" + JSON.stringify(after) +
+          " listNow=" + JSON.stringify(listText(w)));
+    } else if (caz === "deletexss") {
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length >= 3);
+      const xname = "<img src=x onerror=window.__pwned=1>";
+      const row = Array.from(el(w, "face-list").querySelectorAll("li")).find(
+        (li) => li.querySelector(".who") && li.querySelector(".who").textContent === xname);
+      if (!row) { bar("PROBE deletexss :: ERROR row not found"); return; }
+      row.querySelector("button.x").click();
+      await until(() => el(w, "face-list").querySelectorAll("button.x").length === 2);
+      const after = (await (await realFetch("/api/faces/known")).json()).known;
+      bar("PROBE deletexss :: removed=" + JSON.stringify(xname) +
+          " after=" + JSON.stringify(after) +
+          " listNow=" + JSON.stringify(listText(w)) +
+          " pwned=" + (w.__pwned || 0));
+    } else if (caz === "stub-ok" || caz === "stub-multi" || caz === "stub-dup" || caz === "stub-loading") {
+      // Wait for the page's own loadNames() render so the stubbed POST is not
+      // racing the startup GET (races are exercised separately).
+      let renders = 0;
+      const origRender = w.renderNames;
+      w.renderNames = (n) => { renders++; return origRender(n); };
+      await until(() => renders >= 1);
+      const bodies = {
+        "stub-ok":     [201, { name: "Stub Person", samples: 3, known: ["Alice Ng", "Stub Person"] }],
+        "stub-multi":  [409, { error: "more than one face in frame", reason: "multiple-faces" }],
+        "stub-dup":    [409, { error: "name is taken", reason: "name-exists" }],
+        "stub-loading":[503, { error: "models are still loading", reason: "models-loading" }],
+      };
+      const [st, body] = bodies[caz];
+      stub(st, body);
+      await clickRemember(w, caz === "stub-dup" ? "Alice Ng" : "Verifier Ng");
+      if (caz === "stub-ok") await w.refreshIdentities();
+      bar("PROBE " + caz + " :: status=" + JSON.stringify(txt(w, "face-status")) +
+          " class=" + JSON.stringify(el(w, "face-status").className) +
+          " list=" + JSON.stringify(listText(w)) +
+          " ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else if (caz === "subthresh") {
+      await w.refreshIdentities();
+      // Fabricated, out-of-contract payload: confidence below the 0.6 cut.
+      w.render({ width: 320, height: 240, face_identities: {
+        state: "running", seen: 1,
+        identities: [{ name: "Low Conf", confidence: 0.59, bbox: [0, 0, 1, 1] }],
+      }});
+      bar("PROBE subthresh :: ids=" + JSON.stringify(txt(w, "m-identities")));
+    } else {
+      bar("PROBE unknown case " + caz);
+    }
+  } catch (e) {
+    bar("PROBE " + caz + " ERROR :: " + e.message);
+  }
+}
+
+if (caz === "clickfast") {
+  // Do not wait for the iframe 'load' event -- the never-ending MJPEG <img>
+  // delays it past the model warmup window.  Poll for the wired button and
+  // press it the instant app.js has run, so the POST lands inside warmup.
+  (async () => {
+    const w0 = f.contentWindow;
+    const rf = w0.fetch.bind(w0);
+    for (let i = 0; i < 900; i++) {
+      try {
+        const d = w0.document;
+        const b = d && d.getElementById && d.getElementById("face-remember");
+        if (b && b.onclick) {
+          d.getElementById("face-name").value = "Verifier Ng";
+          b.click();
+          break;
+        }
+      } catch (e) { /* document mid-navigation */ }
+      await rf("/api/faces/known").catch(() => null);
+    }
+    runCase();
+  })();
+} else {
+  f.addEventListener("load", runCase);
+}
+</script>
+</body></html>

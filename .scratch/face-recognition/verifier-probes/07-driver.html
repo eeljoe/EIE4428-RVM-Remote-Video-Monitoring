@@ -1,0 +1,88 @@
+<!doctype html>
+<!-- Self-check driver for ticket 07 (registry stale-write). Temporary file: a
+     copy is placed in src/rvm/web/ for the run and deleted afterwards; this
+     archived copy is the verbatim source. It iframes the real operator page
+     same-origin, so `w.fetch`, `w.loadNames` and the buttons are the page's own.
+     Waits are paced by real GETs because --virtual-time-budget fires timers
+     instantly but holds the clock on pending fetches. -->
+<meta charset="utf-8">
+<style>
+  body { margin:0; background:#000; }
+  #bar { min-height:20px; background:#ffee58; color:#000; font:12px/1.5 monospace;
+         padding:4px 8px; white-space:pre-wrap; word-break:break-all; }
+  #f { width:100%; height:calc(100vh - 28px); border:0; display:block; }
+</style>
+<div id="bar">PROBE boot</div>
+<iframe id="f" src="/"></iframe>
+<script>
+const q = new URLSearchParams(location.search);
+const caz = q.get("case") || "race";
+const f = document.getElementById("f");
+const bar = (m) => { document.getElementById("bar").textContent = m; };
+const el = (w, id) => w.document.getElementById(id);
+const txt = (w, id) => { const n = el(w, id); return n ? n.textContent : "<missing:" + id + ">"; };
+const listText = (w) => {
+  const ul = el(w, "face-list");
+  if (!ul) return "<missing:face-list>";
+  return Array.from(ul.querySelectorAll("li .who, li.empty")).map((n) => n.textContent).join(" | ");
+};
+
+async function runCase() {
+  const w = f.contentWindow;
+  const realFetch = w.fetch.bind(w);
+  const tick = () => realFetch("/api/faces/known").catch(() => null);
+  const until = async (cond, tries = 3000) => {
+    for (let i = 0; i < tries; i++) {
+      const v = cond();
+      if (v) return v;
+      await tick();
+    }
+    return null;
+  };
+
+  if (caz === "firstload") {
+    // The guard must not swallow the ordinary startup read: no write happened,
+    // so the seeded name has to appear.
+    const row = await until(() => el(w, "face-list") && el(w, "face-list").querySelector("li .who"));
+    for (let i = 0; i < 5; i++) await tick();
+    bar("PROBE firstload :: row=" + JSON.stringify(row ? row.textContent : null) +
+        " list=" + JSON.stringify(listText(w)) +
+        " knownNames=" + JSON.stringify(w.knownNames) +
+        " (expect Alice Ng: an untouched page still renders its first read)");
+  } else if (caz === "race") {
+    // Deterministic stale-write repro from the 04 gate report (FINDINGS-2):
+    // the read is held 400 ms while the save answers at once with the newer
+    // list.  A correct page keeps the saved name; the old page put the list
+    // from before the write back on screen.
+    let delayed = false;
+    w.fetch = (url, opts = {}) => {
+      if (!opts.method && delayed && String(url).indexOf("/api/faces/known") === 0) {
+        return new Promise((res) => w.setTimeout(() => res(realFetch(url, opts)), 400));
+      }
+      if (opts.method === "POST") {
+        return Promise.resolve(new w.Response(JSON.stringify(
+          { name: "Race Person", samples: 3, known: ["Race Person"] }),
+          { status: 201, headers: { "Content-Type": "application/json" } }));
+      }
+      return realFetch(url, opts);
+    };
+    delayed = true;
+    w.loadNames();                       // a read that will resolve late
+    el(w, "face-name").value = "Race Person";
+    el(w, "face-remember").click();
+    await until(() => txt(w, "face-status"), 2000);
+    // let the delayed read land: pace with real fetches to another path
+    for (let i = 0; i < 80; i++) await realFetch("/api/faces/identities").catch(() => null);
+    bar("PROBE race :: status=" + JSON.stringify(txt(w, "face-status")) +
+        " class=" + JSON.stringify(el(w, "face-status").className) +
+        " list=" + JSON.stringify(listText(w)) +
+        " knownNames=" + JSON.stringify(w.knownNames) +
+        " ids=" + JSON.stringify(txt(w, "m-identities")) +
+        " (expect list=Race Person; 'No names saved yet' means the late read won)");
+  } else {
+    bar("PROBE unknown case " + caz);
+  }
+}
+
+f.addEventListener("load", runCase);
+</script>
