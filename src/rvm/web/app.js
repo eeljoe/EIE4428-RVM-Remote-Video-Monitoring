@@ -490,6 +490,22 @@ function setStatus(kind, message) {
   node.textContent = message || "";
 }
 
+/* The list is also read once when the page opens, and that read can come back
+ * after a save or a delete has already answered with the newer list: the older
+ * answer would then put back the list from before the write. Each write bumps
+ * this stamp, and a read applies its answer only if the stamp it started under
+ * is still the current one; otherwise the answer is older than what is on screen
+ * and is dropped. A read that starts after the write sees the new stamp and is
+ * applied as usual, so the first load of an untouched page still renders. */
+let namesStamp = 0;
+
+/* The answer to a save or a delete is the newest truth about the list, so it is
+ * rendered unconditionally and takes the stamp with it. */
+function renderWrittenNames(names) {
+  namesStamp += 1;
+  renderNames(names);
+}
+
 function renderNames(names) {
   const list = $("face-list");
   const saved = names || [];
@@ -574,7 +590,7 @@ async function rememberFace() {
     const saved = body.name || name;
     setStatus("ok", "Saved as " + saved + ", " + body.samples + " frames averaged");
     $("face-name").value = "";
-    renderNames(body.known);
+    renderWrittenNames(body.known);
     refreshIdentities();
   } catch (err) {
     faceFailure(err, name);
@@ -589,7 +605,7 @@ async function forgetFace(name) {
       method: "DELETE",
     });
     setStatus("", "");
-    renderNames(body.known);
+    renderWrittenNames(body.known);
     refreshIdentities();
   } catch (err) {
     faceFailure(err, name);
@@ -597,10 +613,13 @@ async function forgetFace(name) {
 }
 
 /* The page opens with whatever survived the last restart: the list is the file,
- * which is why it is read from the server rather than kept in the page. */
+ * which is why it is read from the server rather than kept in the page. The
+ * answer is only used if no write answered first -- see namesStamp. */
 async function loadNames() {
+  const stamp = namesStamp;
   try {
     const body = await faceRequest("/api/faces/known", { cache: "no-store" });
+    if (stamp !== namesStamp) return;
     renderNames(body.known);
   } catch (err) {
     /* the empty state stands; a save can still be attempted */

@@ -271,6 +271,9 @@ class TestFaceRegistrationIsDescribed:
         assert "FACE REGISTRY" in joined
         assert "status line" in joined
         assert "delete control" in joined
+
+
+class TestMeasuredClaimsMatchTheImplementation:
     """The report quotes measured numbers; keep them tied to the code."""
 
     def test_test_count_claim_matches_the_suite(self):

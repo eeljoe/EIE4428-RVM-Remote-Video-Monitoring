@@ -728,6 +728,33 @@ async def test_the_registry_status_line_carries_the_five_outcomes(client):
         assert kind in registry, kind
 
 
+async def test_a_late_list_read_cannot_overwrite_a_written_list(client):
+    """AS-3: a read that started before a save or a delete cannot undo it.
+
+    The page reads the list once at startup. A save or a delete can answer with
+    the newer list first, and the older read would then put the list from before
+    the write back on screen (the verifier's race probe: GET delayed 400 ms, POST
+    instant). Each write bumps a stamp, and the read renders its answer only if
+    the stamp it started under is still current -- so the first load of an
+    untouched page, which starts and finishes under the same stamp, still renders.
+    """
+    script = await (await client.get("/static/app.js")).text()
+    registry = registry_block(script)
+
+    read = registry.split("async function loadNames", 1)[1].split(
+        "async function refreshIdentities", 1
+    )[0]
+    before_request, after_request = read.split("await", 1)
+    assert re.search(r"const\s+stamp\s*=\s*namesStamp", before_request)
+    guard = re.search(r"if\s*\(stamp\s*!==\s*namesStamp\)\s*return;", after_request)
+    assert guard, "the read applies its answer whatever happened meanwhile"
+    assert guard.start() < after_request.index("renderNames(body.known)")
+
+    # Save and delete both go through the one path that bumps the stamp.
+    assert re.search(r"namesStamp\s*\+=\s*1", registry)
+    assert registry.count("renderWrittenNames(body.known)") == 2
+
+
 async def test_face_ids_print_the_name_with_its_similarity(client):
     """AS-2: `Alice Ng · 0.82`; an empty known list reports the faces seen.
 

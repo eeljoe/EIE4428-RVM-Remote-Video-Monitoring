@@ -124,7 +124,8 @@ never a photograph**. It is git-ignored, and it is not in the delivery zip eithe
 (`tools/make_zip.py` packs an explicit whitelist that does not include `data/`):
 names are personal data and do not belong in a public repository, so each
 machine enrols its own list. Registering needs the analysis on and the models
-loaded; the button is unavailable for exactly those two states.
+loaded; the button stays clickable in both of those states, and pressing it puts
+`analysis is off` or `models still loading` on the status line instead of saving.
 
 ### Measured results
 
