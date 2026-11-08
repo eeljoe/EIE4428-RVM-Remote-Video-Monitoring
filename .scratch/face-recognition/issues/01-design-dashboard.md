@@ -97,6 +97,7 @@ Select-String -Path .scratch/face-recognition/design/v2/mock.html -Pattern '--fs
 - 读数空值由现行 `&mdash;` 改为单个 `-`(`--muted`):现行页面用长破折号当空值,与指南的 em dash 禁令冲突,按指南改,并写进文档。
 - `Recording`(`#m-rec`)从 ANALYSIS 移到 TRANSPORT 末行:与 mock 一致,同时避免录制状态在两处重复出现。
 - 新增 `docs/DESIGN-dashboard.md`,未触碰 `src/`、`tests/`、`README.md`。
+- r2 返工范围(只改 r1 门报告四处 + 1 Nit):§1 顶栏 `EIE4428` 拆出 `.06em` 行、§1 按钮与下拉单开 15/500 sans 档(原 15/400 行收窄到输入框与名单行)、§6 分区之间按档写清桌面 20 + 18 / ≤900px 8 + 16、§6 `max-height` 去掉「沿用现有实现」并给出 102 = 56 + 1 + 20 + 24 + 1 的新增规则依据、§7 峰值角标对比度改对 `--bg` 7.73:1;改动只在 `docs/DESIGN-dashboard.md`,§1 表增 2 行,故上面 AC→证据 里 §2 及以后的行号整体下移 2 行,其余章节未动。
 
 ## Verdicts
 2026-11-09 r1 REJECTED 0f46685 门判文档四处数值与签字 mock 不符（[spec]4 按产物缺陷改走 [impl] 返工 r2）

@@ -18,9 +18,11 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 | 13 | 600 | .08em | sans 大写 | 分区标题 h2,色 `--text-2` | 10 |
 | 13 | 400 | 0 | sans | 字段标签、提示行、注册行标签、空态、状态行、片段副行 | 10 |
 | 13 | 700 | .04em | sans | 主按钮 `REMEMBER FACE` | 11 大写 |
-| 13 | 400 | .02em | mono | 分区标题右侧 meta(`RVM1 · H.264-style hybrid`)、顶栏 `EIE4428` | 10 |
+| 13 | 400 | .02em | mono | 分区标题右侧 meta(`RVM1 · H.264-style hybrid`) | 10 |
+| 13 | 400 | .06em | mono | 顶栏 `EIE4428` | 10 |
 | 14 | 400 | 0 | sans | 顶栏产品名 `Remote Video Monitor`;≤560px 时 `--fs-label` 这一档全升到此档(见规则) | 10 |
-| 15 | 400 | 0 | sans | 正文:按钮、下拉、输入框、名单行 | 14 / 11 |
+| 15 | 400 | 0 | sans | 正文:输入框、名单行 | 14 / 11 |
+| 15 | 500 | 0 | sans | 按钮与下拉(`select, button`,含分段按钮) | 11 大写 mono |
 | 15 | 500 | 0 + tabular-nums | mono | 读数 dd(Face IDs、Faces 等监控数值);片段日期时间 | 12 |
 | 16 | 400 | 0 | mono | 删除 `×` | 9 |
 | 18 | 700 | .14em | sans | `RVM` 字标,色 `--accent` | 27 |
@@ -145,13 +147,13 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 
 ## 6 响应式顺序
 
-- ≥901px:两栏 `minmax(0, 1fr) 460px`,列间 28 行间 20;右栏自身滚动 `max-height: calc(100vh - 102px)`(沿用现有实现);1440x1000 一屏到底、无滚动无截断(参照图实测:文档高 1000,见 NOTES 第 9 条)。
+- ≥901px:两栏 `minmax(0, 1fr) 460px`,列间 28 行间 20;右栏自身滚动 `max-height: calc(100vh - 102px)`(本票新增规则,现状里没有:mock 与 `src/rvm/web/style.css` 全文都没有这条;102 = 顶栏 56 + 下边框 1 + 布局上内边距 20 + 下内边距 24 + 1px 余量,右栏超高时在栏内滚动,不把整页撑长);1440x1000 一屏到底、无滚动无截断(参照图实测:文档高 1000,见 NOTES 第 9 条)。
 - ≤900px:单列,顺序固定为 **画面 → 控件 → 提示行 → FACE REGISTRY → 遥测四区**(STREAM、TRANSPORT、ANALYSIS、CLIPS)。用 `.viewer` / `.rail` 的 `display: contents` 加 `order` 实现,不改 DOM 顺序、不动无障碍阅读序。
 - 390px(落在 ≤560px 档):顶栏 52 高,隐藏 `Remote Video Monitor`;标签 14px;画面 4:3 满宽。控件逐行排:
   - 第一行控件每行一条,三格「标签 + 下拉(占满剩余宽度) + 按钮」,即 `Target bitrate` 与 `Apply` 同一行、`Motion sensitivity` 与 `Clear zone` 同一行。
   - `Camera` / `Decoded (RVM1)` 两列等宽;`Save snapshot` / `Start recording` 两列等宽;`Export metrics` 独占整行。
   - 删除 `×` 40x40。
-- 逐节折叠写死:读数仍双列;折线高度 30 不变;OSD 12px 不缩放;片段缩略图 56x42 不变;分区之间仍是 20 + 18。
+- 逐节折叠写死:读数仍双列;折线高度 30 不变;OSD 12px 不缩放;片段缩略图 56x42 不变;分区之间桌面 20 + 18(视觉间隔 38),≤900px 8 + 16(视觉间隔 24,mock `@media (max-width: 900px)` 同一选择器)。
 - 七个操作(Apply、Clear zone、Camera、Decoded (RVM1)、Save snapshot、Start recording、Export metrics)在 390x844 首屏内全部可见,不需要滚动才能点到(与 `mock-mobile.png` 逐项对上)。
 
 ## 7 码率折线峰值标注
@@ -160,7 +162,7 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 - 线型:dash 3px / gap 3px、宽 1px;颜色 `rgba(154,165,170,.5)`,即 `--muted` 半透明,叠加后 `#555c60`,对 `--panel` 2.72:1。它只作刻度边,不承载文字,所以不按文字对比度要求。
 - 不用 `--accent`:峰值虚线若用强调色会被读成第二条数据线。
 - 角标文案:`peak 1.33 Mbps`,即 `peak` + 空格 + 两位小数 + 空格 + `Mbps`;数值取该窗口最大值。
-- 角标字体:12px / 400 / mono / 字距 .02em / `tabular-nums` / 色 `--muted`(对 `--panel` 7.35:1)。比读数 15px 小一档、比分区标题 13px 更轻,桌面与 390 同值不缩放。
+- 角标字体:12px / 400 / mono / 字距 .02em / `tabular-nums` / 色 `--muted`(对 `--bg` 7.73:1,角标落在分区底即页底,分区不铺 `--panel`)。比读数 15px 小一档、比分区标题 13px 更轻,桌面与 390 同值不缩放。
 - 角标位置:挂在 `Video bitrate` 那一行的行尾,`margin-left: auto` 右对齐,与折线右端、与标题右侧 meta(`RVM1 · H.264-style hybrid`)同一条右边线。
 - 不新增块:不加图例框、不加高、不占新行。1440x1000 下最低内容底 953,分区位置与上一版逐像素相同。
 - 数字与画布同源:画布按同一个 peak 归一化,所以角标数字永远等于折线天花板,不许两边各算一次。
