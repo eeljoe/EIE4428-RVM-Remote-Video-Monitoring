@@ -52,6 +52,7 @@ from .states import (
 __all__ = [
     "FaceRecognition",
     "FaceRecognizer",
+    "FaceSamplingError",
     "EmotionDetection",
     "EmotionRecognizer",
 ]
@@ -60,6 +61,17 @@ log = logging.getLogger(__name__)
 
 # Reported in place of a detector name when there is nothing to report; the
 # vocabulary lives in :mod:`rvm.analysis.states` so every analyser agrees.
+
+
+class FaceSamplingError(RuntimeError):
+    """No sample could be taken: the landmarker is missing or the frame failed.
+
+    Registration needs to tell "this frame has no face" (an answer about the
+    scene, which the operator can fix by standing in front of the camera) from
+    "there is no landmarker" (an answer about the installation, which no amount
+    of standing still will fix).  The first is an empty list, the second is
+    this exception.
+    """
 
 
 def _ensure_rgb(frame: np.ndarray) -> np.ndarray:
@@ -220,12 +232,55 @@ class FaceRecognizer(_FaceLandmarkerOwner):
         self.known_faces: Dict[str, np.ndarray] = {}
 
     def add_known_face(self, name: str, embedding: np.ndarray) -> None:
-        """Register a face by its landmark embedding."""
-        self.known_faces[name] = np.asarray(embedding, dtype=np.float64)
+        """Register a face by its landmark embedding.
+
+        The mapping is copied and swapped, never edited in place: the encode
+        thread iterates it while identifying a picture, and an insert into a
+        dict another thread is walking is what raises ``dictionary changed
+        size during iteration``.
+        """
+        known = dict(self.known_faces)
+        known[name] = np.asarray(embedding, dtype=np.float64)
+        self.known_faces = known
 
     def remove_known_face(self, name: str) -> bool:
         """Forget a registered face; returns whether it was there."""
-        return self.known_faces.pop(name, None) is not None
+        if name not in self.known_faces:
+            return False
+        known = dict(self.known_faces)
+        del known[name]
+        self.known_faces = known
+        return True
+
+    def replace_known_faces(self, faces) -> None:
+        """Install a whole list at once -- what loading, or a saved change, does."""
+        self.known_faces = {
+            str(name): np.asarray(vector, dtype=np.float64)
+            for name, vector in faces.items()
+        }
+
+    def sample_faces(self, frame: np.ndarray) -> List[np.ndarray]:
+        """One embedding per face in *frame*; an empty list when there is none.
+
+        Registration averages these over a few frames.  It is deliberately the
+        same inference :meth:`recognize` uses, so a face that can be registered
+        is a face that can be recognised -- two separate sampling paths would
+        eventually disagree about which landmarks count.
+        """
+        if self._load_model() is None:
+            raise FaceSamplingError(self._failure or "face landmarker unavailable")
+
+        try:
+            result = self._detect(frame)
+        except Exception as exc:  # noqa: BLE001 - any failure means "no sample"
+            raise FaceSamplingError(f"{type(exc).__name__}: {exc}") from exc
+
+        samples: List[np.ndarray] = []
+        for face_landmarks in result.face_landmarks or []:
+            embedding = self._embedding(face_landmarks)
+            if embedding is not None:
+                samples.append(embedding)
+        return samples
 
     def recognize(self, frame: np.ndarray) -> FaceRecognition:
         """Identify every face in *frame*.
@@ -246,8 +301,12 @@ class FaceRecognizer(_FaceLandmarkerOwner):
         if not result.face_landmarks:
             return FaceRecognition([], STATE_NO_FACES, seen=0)
 
+        # One reference for the whole picture: the registry may be replaced by
+        # a registration halfway through, and mixing two lists in one result
+        # would mean scoring faces against two different databases.
+        known = self.known_faces
         seen = len(result.face_landmarks)
-        if not self.known_faces:
+        if not known:
             return FaceRecognition([], STATE_NO_KNOWN, seen=seen)
 
         height, width = frame.shape[:2]
@@ -256,34 +315,40 @@ class FaceRecognizer(_FaceLandmarkerOwner):
             embedding = self._embedding(face_landmarks)
             if embedding is None:
                 continue
-            name, confidence = self._match(embedding)
+            name, confidence = self._match(embedding, known)
             if name is not None:
                 identities.append(
                     (name, confidence, _boxes_from_landmarks(face_landmarks, width, height))
                 )
         return FaceRecognition(identities, STATE_RUNNING, seen=seen)
 
-    def _match(self, embedding: np.ndarray) -> tuple[str | None, float]:
+    def _match(
+        self, embedding: np.ndarray, known: Dict[str, np.ndarray] | None = None
+    ) -> tuple[str | None, float]:
         """The registered name for *embedding*, or ``None`` when nobody is close.
 
         Keeping the accept/reject rule here rather than inline makes it
         testable: the whole point of the threshold is that a face that is
         merely nearest-but-far is not reported as an identity.
         """
-        name, distance = self._nearest(embedding)
+        name, distance = self._nearest(embedding, known)
         confidence = max(0.0, 1.0 - distance)
         if name is None or confidence < self.threshold:
             return None, confidence
         return name, confidence
 
-    def _nearest(self, embedding: np.ndarray) -> tuple[str | None, float]:
+    def _nearest(
+        self, embedding: np.ndarray, known: Dict[str, np.ndarray] | None = None
+    ) -> tuple[str | None, float]:
+        known = self.known_faces if known is None else known
         best_name = None
         best_distance = float("inf")
-        for name, known in self.known_faces.items():
-            distance = float(np.linalg.norm(embedding - known))
+        for name, registered in known.items():
+            distance = float(np.linalg.norm(embedding - registered))
             if distance < best_distance:
                 best_distance, best_name = distance, name
         return best_name, best_distance
+
 
     @staticmethod
     def _embedding(face_landmarks) -> Optional[np.ndarray]:

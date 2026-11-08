@@ -8,6 +8,7 @@ than an exception.  A monitoring server that dies because an optional model is
 missing is worse than one that says "unavailable".
 """
 
+import threading
 from types import SimpleNamespace
 
 import numpy as np
@@ -19,6 +20,7 @@ from rvm.analysis.recognition import (
     EmotionRecognizer,
     FaceRecognition,
     FaceRecognizer,
+    FaceSamplingError,
     _ensure_rgb,
     _boxes_from_landmarks,
 )
@@ -254,3 +256,112 @@ def test_a_face_inside_the_threshold_is_reported_with_its_name():
 
     assert name == "joe"
     assert confidence == pytest.approx(0.6)
+
+
+# --------------------------------------------------------------------------
+# Sampling one frame for registration
+# --------------------------------------------------------------------------
+
+
+def test_sampling_a_frame_without_a_face_returns_an_empty_list():
+    """A blank picture has no face: an empty answer, not an exception.
+
+    Registration turns this into ``no-face`` (the operator can fix it by
+    standing in front of the camera), which only works if the sampler
+    distinguishes "nothing there" from "no landmarker".
+    """
+    pytest.importorskip("mediapipe")
+
+    recognizer = FaceRecognizer()
+    try:
+        assert recognizer.sample_faces(np.zeros((120, 160, 3), dtype=np.uint8)) == []
+    finally:
+        recognizer.close()
+
+
+def test_sampling_without_a_model_is_reported_as_a_sampling_error(tmp_path, monkeypatch):
+    """``unavailable`` is a 503, so the sampler must not answer "no face"."""
+    monkeypatch.setenv("RVM_MODELS_DIR", str(tmp_path))
+    recognizer = FaceRecognizer()
+
+    with pytest.raises(FaceSamplingError):
+        recognizer.sample_faces(np.zeros((120, 160, 3), dtype=np.uint8))
+
+
+# --------------------------------------------------------------------------
+# The registry is replaced, never edited in place
+# --------------------------------------------------------------------------
+
+
+def test_registering_a_face_leaves_the_previous_mapping_untouched():
+    recognizer = FaceRecognizer()
+    recognizer.add_known_face("joe", np.zeros(4))
+    held = recognizer.known_faces
+
+    recognizer.add_known_face("amy", np.ones(4))
+
+    assert held is not recognizer.known_faces, "in-place insert is the bug this pins"
+    assert list(held) == ["joe"]
+    assert sorted(recognizer.known_faces) == ["amy", "joe"]
+
+
+def test_removing_a_face_leaves_the_previous_mapping_untouched():
+    recognizer = FaceRecognizer()
+    recognizer.add_known_face("joe", np.zeros(4))
+    held = recognizer.known_faces
+
+    assert recognizer.remove_known_face("joe") is True
+    assert recognizer.remove_known_face("joe") is False
+
+    assert held is not recognizer.known_faces
+    assert list(held) == ["joe"]
+    assert recognizer.known_faces == {}
+
+
+def test_replacing_the_list_installs_a_fresh_mapping():
+    recognizer = FaceRecognizer()
+    recognizer.add_known_face("old", np.zeros(4))
+    held = recognizer.known_faces
+
+    recognizer.replace_known_faces({"loaded": np.array([1.0, 2.0])})
+
+    assert held is not recognizer.known_faces
+    assert list(held) == ["old"]
+    assert recognizer.known_faces["loaded"].tolist() == [1.0, 2.0]
+
+
+def test_identifying_while_the_list_changes_never_raises():
+    """What an in-place registry would do: ``dictionary changed size``.
+
+    The encode thread walks ``known_faces`` on every analysed picture while a
+    registration request replaces it.  Whole-mapping replacement means the
+    walk holds one immutable dict, so the two cannot collide -- this test would
+    fail with ``RuntimeError`` if the mapping were edited in place.
+    """
+    recognizer = FaceRecognizer(threshold=0.6)
+    stop = threading.Event()
+    failures: list[BaseException] = []
+
+    def churn() -> None:
+        index = 0
+        while not stop.is_set():
+            name = f"person-{index}"
+            recognizer.add_known_face(name, np.zeros(4))
+            recognizer.remove_known_face(name)
+            index += 1
+
+    worker = threading.Thread(target=churn, daemon=True)
+    worker.start()
+    try:
+        for _ in range(400):
+            try:
+                recognizer._match(np.ones(4))
+            except BaseException as exc:  # noqa: BLE001 - the failure is the assertion
+                failures.append(exc)
+                break
+    finally:
+        stop.set()
+        worker.join(timeout=5.0)
+
+    assert failures == []
+
