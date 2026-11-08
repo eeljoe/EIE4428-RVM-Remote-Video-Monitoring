@@ -111,3 +111,12 @@ r2:
   / 理由：本会话的桌面输入只能后台投递，Chromium 的 `text_input` 后台不可用、前台被拒；
   同源 iframe 可以像人一样 `value=` + `click()` 点到真实页面。 / 影响面：产品文件未改；
   驱动页副本留在 `verifier-probes/04-selfcheck-harness.html`，并在自检文档里写明哪几张图是桩。
+
+### 票 5
+
+- 决定：把 02-r2-verifier-persist 的两段（跨进程持久化、混合宽度降级）并进**一条**测试 / 理由：每次进程启动实测约 1.7 s，另立一条只是多一次启动 / 影响面：两段共享一次 `--no-analysis` 配置，失败靠断言文本区分阶段。
+   - 决定：桩掉 emotion/gesture 的 `_failure` 而不只桩 `detect` / 理由：`features()` 会问 `available` 并真的加载两个 MediaPipe 模型，实测把这条测试从 0.48 s 拖到 2.76 s，且让「无模型机器」变成另一种未定义行为 / 影响面：测试依赖 `_failure` 这个内部失败缓存属性名。
+   - 决定：失败路径测试末尾追加一次成功注册 / 理由：只断言 409 不能区分「服务还能干活」与「错误处理器还能回话」 / 影响面：多一次 201 POST，多钉住一条「拒绝后仍可写」。
+   - 决定：子进程测试标 `pytest.mark.slow` / 理由：单条约 5 s，是套件里最慢的一条，标记只为可读性（默认不筛） / 影响面：`--strict-markers` 下 marker 已在 `pyproject.toml` 注册，无新增配置。
+   - 决定：不收编 02-mirror-sync / 06-race / 02-pumpguard 探针 / 理由：它们的断言已逐条落在 `tests/test_face_api.py:519,538,552,574` 与 `tests/test_face_store.py:290,330` / 影响面：套件不新增重复测试；清单与逐条对应写在报告里。
+   - 决定：测试文件压到 300 行（票面上限）而把真机读数放探针 / 理由：尺寸上限，且真机读数不属于套件回归 / 影响面：`05-integration-selfcheck.*` 三个文件在探针目录，不改历史探针。

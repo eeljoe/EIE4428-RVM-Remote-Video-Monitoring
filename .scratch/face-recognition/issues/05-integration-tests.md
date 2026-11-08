@@ -1,6 +1,6 @@
 # 05 — 集成测试与探针收编
 
-**Status:** claimed
+**Status:** resolved
 **Blocked by:** 02, 03, 04
 真机自检：必须（探针路径占位：`.scratch/face-recognition/verifier-probes/05-integration-selfcheck.md`）
 
@@ -102,3 +102,5 @@
    - 决定：测试文件压到 300 行（票面上限）而把真机读数放探针 / 理由：尺寸上限，且真机读数不属于套件回归 / 影响面：`05-integration-selfcheck.*` 三个文件在探针目录，不改历史探针。
 
 ## Verdicts
+
+- 2026-11-09 r1 VERIFIED 7671388 — 四步链与失败路径经独立探针与全套件在干净副本重跑皆绿，四个变异全被杀死，收编清单逐项复验属实｜报告：.scratch/face-recognition/reports/05-r1-verifier.md｜模型路线：未标注（派发未带 --model）
