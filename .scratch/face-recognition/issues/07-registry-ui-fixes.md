@@ -56,9 +56,9 @@ race 探针红→绿、全套通过；独立动态门在干净副本里亲手复
   or `models still loading` on the status line instead of saving」。原句
   `the button is unavailable for exactly those two states` 已无命中（`grep -n
   "unavailable for exactly those two states" README.md` → 空）。实现侧不动：
-  `src/rvm/web/app.js:577-600`（`rememberFace`）只在请求在途时 `disabled`，与 04
+  `src/rvm/web/app.js:576-600`（`rememberFace`）只在请求在途时 `disabled`，与 04
   号票 §6 的决定一致。
-- **AC2 [AS-2, AS-3] 晚到 GET 不得覆盖写后的名单** — `src/rvm/web/app.js:495-508`
+- **AC2 [AS-2, AS-3] 晚到 GET 不得覆盖写后的名单** — `src/rvm/web/app.js:493-507`
   是版本戳与写路径；`:593`/`:608` 保存与删除都走 `renderWrittenNames`；`:618-627`
   的 `loadNames` 在 `await` 前取 `stamp`、`await` 后 `if (stamp !== namesStamp) return;`
   再渲染。测试：`tests/test_app.py:731`
