@@ -106,7 +106,7 @@ SUMMARY = [
     "tuned, which is what the project is meant to teach. It also means the system "
     "carries no external codec dependency and runs anywhere Python runs.",
 
-    "The system was developed test-first: 403 automated tests cover the colour "
+    "The system was developed test-first: 594 automated tests cover the colour "
     "transform, the bit-level syntax, the transform and quantiser, the entropy "
     "coder, motion estimation, rate control, the complete encode/decode pair, the "
     "transport layer and the HTTP/WebSocket server. Tests were written before each "
@@ -212,8 +212,8 @@ ACHIEVEMENTS = [
 
     "Measured results. The figures quoted here were measured on the machine that "
     "runs the demonstration, with the submitted code, by a benchmark script that "
-    "is part of the delivery. At the default 320x240 the encoder sustains about 20 "
-    "pictures per second at approximately 200 kbit/s, with a quantiser parameter of "
+    "is part of the delivery. At the default 320x240 the encoder sustains about 40 "
+    "pictures per second at approximately 280 kbit/s, with a quantiser parameter of "
     "1, giving a PSNR of about 42 dB measured against the encoder's own "
     "reconstruction, which is the picture the receiver actually displays. With a "
     "60 kbit/s target the rate controller converged inside a 30 per cent band over "
@@ -509,7 +509,7 @@ REFERENCES = [
     "vectorised transform, quantisation and motion estimation.",
 
     "pytest documentation, https://docs.pytest.org/ -- the test framework used "
-    "for the 403 automated tests.",
+    "for the 594 automated tests.",
 
     "EIE4428 Multimedia Communications lecture notes, Units 1 to 4, HK PolyU, "
     "2026: multimedia fundamentals and QoS targets, scalable coding, error and "
@@ -532,9 +532,10 @@ FUNCTIONALITIES = {
     ),
     "Achieved Video Frame Rate (Frames/s)": (
         "About 20 frames/s achieved at 320x240, the default operating point; the "
-        "target frame rate is configurable from 10 to 30 frames/s. The limit is "
-        "the Python encoder, not the algorithm: 640x480 is supported but runs at "
-        "about 3 frames/s, which is why 320x240 is the default."
+        "target frame rate is configurable from 10 to 30 frames/s. The encoder "
+        "itself sustains about 40 pictures/s (24 ms median) after the reference-frame "
+        "optimisation; the limit is the Python encoder, not the algorithm: 640x480 is "
+        "supported but runs at about 4 frames/s, which is why 320x240 is the default."
     ),
     "Video Format": (
         "RVM1 - a group-written hybrid transform codec following the MPEG / "

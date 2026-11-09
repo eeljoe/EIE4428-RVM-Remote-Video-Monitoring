@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 497 tests, ~20s
+.\.venv\Scripts\python.exe -m pytest          # 594 tests, ~25s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -307,15 +307,15 @@ makes the wall-clock average wander while the cost of coding one picture does no
 
 Output: `docs/EIE4428-mini-project-report-RVM.docx` (built from the supplied template).
 
-The group member rows carry `[Student ID]` placeholders until the names are
-supplied. Give them on the command line — the name then appears on the cover
-sheet *and* in the co-operation section, and the "to be completed" note
-disappears by itself:
+The current build carries both members — JIANG Lin Ao (20075335D) and
+Yeung Tsz Chun Herman (23019365D). To change them, pass the pairs on the
+command line; the names appear on the cover sheet *and* in the co-operation
+section, and the "to be completed" note disappears by itself:
 
 ```powershell
 .\.venv\Scripts\python.exe tools\build_report.py `
-    --member "Chan Tai Man | 20075335D" `
-    --member "Wong Siu Ming | 20075336E"
+    --member "JIANG Lin Ao | 20075335D" `
+    --member "Yeung Tsz Chun Herman | 23019365D"
 ```
 
 The build prints a reminder while the placeholders are still there, so a

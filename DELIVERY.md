@@ -29,7 +29,7 @@ EIE4428-RVM/
 │  ├─ server/     source.py, session.py, recorder.py, app.py
 │  └─ web/        index.html, app.js, style.css
 │
-├─ tests/                       403 tests (pytest)
+├─ tests/                       594 tests (pytest)
 ├─ tools/                       report builder, benchmark, block-diagram generator, packaging script
 │
 └─ docs/
@@ -100,7 +100,7 @@ bounding boxes, and the recorded-clip list.
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest          # 403 tests, about 10 s
+.\.venv\Scripts\python.exe -m pytest          # 594 tests, about 25 s
 .\.venv\Scripts\python.exe verify_system.py   # end-to-end live check
 .\.venv\Scripts\python.exe tools\benchmark.py # encoder measurement
 ```
@@ -112,8 +112,8 @@ time, so the shipped ZIP is known to boot and to pass the suite.
 
 ## 4. Before submitting
 
-* The member table in the report carries `[Student ID]` placeholders until the
-  real names are supplied. Give them on the command line, then rebuild:
+* The report already carries both members — JIANG Lin Ao (20075335D) and
+  Yeung Tsz Chun Herman (23019365D). If they ever change, rebuild:
 
   ```powershell
   .\.venv\Scripts\python.exe tools\build_report.py `
@@ -122,8 +122,7 @@ time, so the shipped ZIP is known to boot and to pass the suite.
   .\.venv\Scripts\python.exe tools\verify_report.py
   ```
 
-  The name then appears on the cover sheet and in the co-operation section,
-  and the "to be completed" note disappears by itself. The build prints a
-  reminder while the placeholders are still in place.
+  The build prints a reminder while placeholders are still in place, so a
+  half-finished report cannot be shipped by accident.
 
 * Rebuild the ZIP after any change: `python tools/make_zip.py --out <folder>`.
