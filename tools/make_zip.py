@@ -41,10 +41,14 @@ ROOT_FILES = [
     "DELIVERY.md",
     "requirements.txt",
     "requirements-dev.txt",
+    "requirements-analysis.txt",
     "run.bat",
     "run_server.py",
     "verify_system.py",
     "pyproject.toml",
+    # The ignore rules travel with the code: they are what declares that the
+    # registered face list is personal data and must never be committed.
+    ".gitignore",
     # The course template is required by tools/build_report.py and by
     # tests/test_report.py, which rebuilds the report from it.
     "EIE4428-mini-project-report-template.docx",
@@ -55,12 +59,18 @@ TREE_DIRS = [
     "src",
     "tests",
     "tools",
+    # Cascade XML + MediaPipe .task bundles: without these the delivered copy
+    # silently degrades to "detector unavailable" on the marker's machine.
+    "models",
     "docs/figures",
 ]
 
 # Individual files inside directories that are not copied wholesale.
 EXTRA_FILES = [
     "docs/EIE4428-mini-project-report-RVM.docx",
+    "docs/FEATURES.md",
+    # The dashboard numbers are pinned to this document by tests/test_app.py.
+    "docs/DESIGN-dashboard.md",
 ]
 
 # Never include anything matching these, wherever it appears.
