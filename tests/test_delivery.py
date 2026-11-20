@@ -52,6 +52,23 @@ def test_the_page_points_the_video_element_at_the_live_stream():
     assert "stream.mjpg" in match.group(0)
 
 
+def test_the_live_picture_does_not_start_a_native_drag():
+    """Left-drag on the picture draws the watch zone, so the native drag must go.
+
+    An ``<img>`` is draggable by default: with a real mouse the press starts an
+    HTML5 image drag, the pointer capture that owns the zone gesture is lost,
+    and the operator ends up dragging a ghost picture instead of sizing a
+    region.  A pointer-driven test cannot catch it, which is why the attribute
+    is pinned here.
+    """
+    html = read_web("index.html")
+
+    match = re.search(r"<img[^>]*id=\"stream\"[^>]*>", html)
+
+    assert match is not None, "the page has no video element"
+    assert 'draggable="false"' in match.group(0)
+
+
 def test_the_page_offers_both_the_camera_and_the_decoded_view():
     html = read_web("index.html")
 
