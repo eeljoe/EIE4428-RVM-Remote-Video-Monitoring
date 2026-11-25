@@ -180,8 +180,10 @@ class StreamSession:
             width, height, target_bitrate=bitrate, frame_rate=fps, gop_size=gop_size
         )
         self.motion_detector = MotionDetector(threshold=motion_threshold)
-        # The operator can narrow detection to a region and choose how eager
-        # the alarm is; defaults reproduce the behaviour with no controls used.
+        # Motion detection is disarmed until the operator draws a zone: an
+        # alarm that fires on an untouched picture is noise, and a red screen
+        # on first load is worse than no alarm at all.  The zone is therefore
+        # both "where to look" and "whether to look".
         self.roi: tuple[float, float, float, float] | None = None
         self.motion_sensitivity = "medium"
         self.face_detector = FaceDetector()
@@ -298,10 +300,12 @@ class StreamSession:
             self.recorder = None
 
     def set_roi(self, roi) -> None:
-        """Confine motion detection to a normalised region, or clear it.
+        """Arm motion detection on a normalised region, or disarm it.
 
-        Clearing the scene's history is part of the change, not a side effect:
-        the background model was learnt with a different definition of "the
+        Drawing a zone is the only way to arm detection; clearing the zone
+        disarms it again, so the picture is never watched by default.  Clearing
+        the scene's history is part of the change, not a side effect: the
+        background model was learnt with a different definition of "the
         monitored area", and keeping it would leave the alarm comparing
         apples with oranges for the first seconds after the operator draws a
         box.
@@ -316,6 +320,12 @@ class StreamSession:
         self.motion_detector.reset()
         self.tracker.reset()
         self._tracks = []
+        self._motion = None
+
+    @property
+    def motion_enabled(self) -> bool:
+        """Whether a zone is armed; motion detection is off without one."""
+        return self.roi is not None
 
     def set_motion_sensitivity(self, name: str) -> None:
         """Pick how eager the motion alarm is: ``low``, ``medium`` or ``high``."""
@@ -370,10 +380,17 @@ class StreamSession:
 
         luma = to_planes(rgb_to_ycbcr(frame))[0].astype(np.uint8)
 
-        self._motion = self.motion_detector.update(luma, roi=self.roi)
-        self._faces = self.face_detector.detect(luma)
-        self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
+        if self.roi is None:
+            # Disarmed: no alarm, no moving-object boxes, no tracking view.  The
+            # detector is not run at all, so a scene that is busy on its own
+            # cannot leave stale state for the moment a zone is drawn.
+            self._motion = None
+            self._tracks = []
+        else:
+            self._motion = self.motion_detector.update(luma, roi=self.roi)
+            self._tracks = self.tracker.update(regions_from_mask(self._motion.mask))
 
+        self._faces = self.face_detector.detect(luma)
         self._analyse(frame)
         self._drain_audio()
 
@@ -810,6 +827,7 @@ class StreamSession:
                 "bbox": motion.get("bbox"),
                 "faces": faces.get("count", 0),
                 "roi": list(self.roi) if self.roi else None,
+                "motion_enabled": self.motion_enabled,
                 "motion_sensitivity": self.motion_sensitivity,
                 "motion": motion,
                 "tracks": [track.snapshot() for track in self._tracks],

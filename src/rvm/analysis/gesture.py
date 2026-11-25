@@ -54,8 +54,22 @@ MIDDLE_MCP, MIDDLE_TIP = 9, 12
 RING_MCP, RING_TIP = 13, 16
 PINKY_MCP, PINKY_TIP = 17, 20
 
+#: Knuckle and tip index per long finger, in the order the rule table reads them.
+FINGER_JOINTS = {
+    "index": (INDEX_MCP, INDEX_TIP),
+    "middle": (MIDDLE_MCP, MIDDLE_TIP),
+    "ring": (RING_MCP, RING_TIP),
+    "pinky": (PINKY_MCP, PINKY_TIP),
+}
+
 THUMB_REACH_RATIO = 1.15
-OK_SIGN_MAX_GAP = 0.05
+#: A long finger counts as extended when its tip lies at least this far past its
+#: knuckle along the palm axis, measured in palm lengths (wrist -> middle
+#: knuckle).  A straight finger reaches roughly 0.8; a curled one folds back to
+#: zero or below, so the gap between the two classes is wide.
+FINGER_FORWARD_RATIO = 0.25
+#: Thumb tip to index tip, in palm lengths, below which the two are touching.
+OK_SIGN_MAX_GAP = 0.25
 
 
 class GestureType(str, Enum):
@@ -237,8 +251,17 @@ class GestureRecognizer:
         sideways comparison would read a vertical thumbs-up as a fist, and on a
         mirrored camera it would invert.
 
+        The long fingers are judged **in the palm's own frame**, not in image
+        coordinates.  Comparing ``tip.y`` with ``knuckle.y`` silently assumes
+        the hand is upright: hold the same fist rotated 90 degrees — which is
+        what a thumbs-up is — and the curled fingertips land above their
+        knuckles, so every finger reads extended and the pose comes back as an
+        open palm.  The palm axis (wrist to middle knuckle) is invariant under
+        rotation and aspect ratio, so the test is too.  Measured in palm
+        lengths, not pixels, so distance from the camera does not matter.
+
         Known limit, stated rather than hidden: a fist with the thumb tucked
-        flat across the knuckles also passes this test and reads as
+        flat across the knuckles also passes the thumb test and reads as
         ``thumbs_up``.  Distinguishing the two needs palm-relative geometry
         (where the tip lies relative to the four knuckles), which is the next
         step if the pose matters; see ``docs/FEATURES.md``.
@@ -249,13 +272,34 @@ class GestureRecognizer:
         reach = np.hypot(thumb_tip.x - wrist.x, thumb_tip.y - wrist.y)
         folded_reach = np.hypot(thumb_joint.x - wrist.x, thumb_joint.y - wrist.y)
 
-        return {
-            "thumb": reach > folded_reach * THUMB_REACH_RATIO,
-            "index": hand_landmarks[INDEX_TIP].y < hand_landmarks[INDEX_MCP].y,
-            "middle": hand_landmarks[MIDDLE_TIP].y < hand_landmarks[MIDDLE_MCP].y,
-            "ring": hand_landmarks[RING_TIP].y < hand_landmarks[RING_MCP].y,
-            "pinky": hand_landmarks[PINKY_TIP].y < hand_landmarks[PINKY_MCP].y,
-        }
+        extended = {"thumb": reach > folded_reach * THUMB_REACH_RATIO}
+
+        palm = hand_landmarks[MIDDLE_MCP]
+        axis_x = palm.x - wrist.x
+        axis_y = palm.y - wrist.y
+        palm_length = float(np.hypot(axis_x, axis_y))
+        if palm_length < 1e-9:
+            # Degenerate landmarks cannot define a frame; fall back to the
+            # upright assumption rather than dividing by zero.
+            for name, (mcp, tip) in FINGER_JOINTS.items():
+                extended[name] = hand_landmarks[tip].y < hand_landmarks[mcp].y
+            return extended
+
+        unit_x, unit_y = axis_x / palm_length, axis_y / palm_length
+        for name, (mcp, tip) in FINGER_JOINTS.items():
+            dx = hand_landmarks[tip].x - hand_landmarks[mcp].x
+            dy = hand_landmarks[tip].y - hand_landmarks[mcp].y
+            forward = (dx * unit_x + dy * unit_y) / palm_length
+            extended[name] = forward > FINGER_FORWARD_RATIO
+        return extended
+
+    @staticmethod
+    def _palm_length(hand_landmarks: Sequence) -> float:
+        """Wrist-to-middle-knuckle distance; the hand's own unit of length."""
+        wrist = hand_landmarks[WRIST]
+        palm = hand_landmarks[MIDDLE_MCP]
+        length = float(np.hypot(palm.x - wrist.x, palm.y - wrist.y))
+        return length if length > 1e-9 else 1.0
 
     def _classify_gesture(self, hand_landmarks: Sequence) -> GestureType:
         """Name the pose from the extended-finger pattern."""
@@ -266,9 +310,17 @@ class GestureRecognizer:
         thumb_tip = hand_landmarks[THUMB_TIP]
         index_tip = hand_landmarks[INDEX_TIP]
         gap = float(np.hypot(thumb_tip.x - index_tip.x, thumb_tip.y - index_tip.y))
+        # The same gap means different things on a near hand and a far one, so
+        # the threshold is a fraction of the palm, not a slice of the frame.
+        gap_in_palms = gap / self._palm_length(hand_landmarks)
 
         # OK: thumb and index tips touch while the other three stand up.
-        if gap < OK_SIGN_MAX_GAP and raised >= 2 and extended["middle"] and extended["ring"]:
+        if (
+            gap_in_palms < OK_SIGN_MAX_GAP
+            and raised >= 2
+            and extended["middle"]
+            and extended["ring"]
+        ):
             return GestureType.OK_SIGN
 
         # Open palm: everything up, thumb included.

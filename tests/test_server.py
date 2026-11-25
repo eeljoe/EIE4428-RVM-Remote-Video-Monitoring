@@ -227,6 +227,9 @@ def test_session_reports_the_number_of_connected_clients():
 
 def test_session_raises_the_alarm_when_the_scene_changes():
     session = make_session(motion_threshold=0.01)
+    # Drawing a zone is what arms motion detection; without one the scene is
+    # not watched at all.
+    session.set_roi((0.0, 0.0, 1.0, 1.0))
     static = session.source.read()
 
     # The first picture becomes the background, so a frozen scene stays quiet.

@@ -99,7 +99,11 @@ function render(s) {
   setText("m-loss", ((s.fraction_lost ?? 0) * 100).toFixed(2) + " %");
   setText("m-jitter", (s.jitter_ms ?? 0).toFixed(2) + " ms");
   setText("m-clients", s.clients ?? 0);
-  setText("m-motion", ((s.motion_ratio ?? 0) * 100).toFixed(2) + " %");
+  /* A zone is what arms motion detection, so "no zone" means "off", not
+   * "watch the whole picture".  Nothing red may appear before the operator
+   * has drawn one. */
+  const watching = Boolean(s.motion_enabled ?? s.roi);
+  setText("m-motion", watching ? ((s.motion_ratio ?? 0) * 100).toFixed(2) + " %" : "off");
   setText("m-faces", s.faces ?? 0);
   setText(
     "m-tracks",
@@ -112,8 +116,14 @@ function render(s) {
   setText("m-rec", s.recording ? "recording" : "off");
   setText("src-label", "source: " + (s.source || "-"));
 
-  $("alarm").classList.toggle("on", Boolean(s.alarm));
-  setText("m-roi", s.roi ? "custom zone" : "whole picture");
+  $("alarm").classList.toggle("on", watching && Boolean(s.alarm));
+  setText("m-roi", watching ? "custom zone" : "off — drag a box");
+  setText(
+    "zone-help",
+    watching
+      ? "Watching the boxed area. Drag again to move it, or press Esc to stop."
+      : "Motion detection is off. Drag a box on the picture to start watching an area."
+  );
   drawRegion(s);
   drawMotionBox(s);
   drawTracks(s);
@@ -390,13 +400,7 @@ function wire() {
     }
   };
 
-  $("clear-roi").onclick = async () => {
-    try {
-      render(await postJSON("/api/motion", { roi: null }));
-    } catch (err) {
-      alert("Could not clear the zone: " + err.message);
-    }
-  };
+  $("clear-roi").onclick = stopWatching;
 
   // The name is sent as typed (trimmed); the server owns what counts as a
   // usable name, so an empty box is refused by the same 400 as anything else
@@ -412,6 +416,18 @@ function wire() {
 let dragStart = null;
 let lastStatus = null;
 
+/* The Stop button and the Esc key do the same thing: clear the zone on the
+ * server, which is what disarms detection.  Doing it on the server rather than
+ * hiding the overlay locally keeps every viewer's state honest. */
+async function stopWatching() {
+  if (!lastStatus || !lastStatus.roi) return;
+  try {
+    render(await postJSON("/api/motion", { roi: null }));
+  } catch (err) {
+    alert("Could not stop motion detection: " + err.message);
+  }
+}
+
 function fractionAt(event) {
   const rect = $("stream").getBoundingClientRect();
   const x = Math.min(Math.max(event.clientX - rect.left, 0), rect.width);
@@ -421,6 +437,17 @@ function fractionAt(event) {
 
 function wireZone() {
   const stage = $("stage");
+
+  // Esc is the panic switch: one key turns the alarm off, whatever else the
+  // page is doing.  It is ignored while typing in a field, so editing a name
+  // is never interrupted.
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const tag = (event.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "select" || tag === "textarea") return;
+    event.preventDefault();
+    stopWatching();
+  });
 
   stage.addEventListener("pointerdown", (event) => {
     if (event.target.closest("button")) return;
@@ -679,8 +706,11 @@ function renderClips(clips) {
   list.innerHTML = recent
     .map((clip) => {
       const src = "/api/clips/" + clip.name + "/0.jpg";
+      // The thumbnail is frame 0, but the link goes to the playback page: a
+      // clip is a recording, and opening one should show the recording.
+      const play = "/api/clips/" + clip.name + "/play";
       return (
-        '<li><a href="' + src + '" target="_blank" rel="noopener">' +
+        '<li><a href="' + play + '" target="_blank" rel="noopener">' +
         '<img src="' + src + '" alt="first frame of ' + clip.name + '" loading="lazy" />' +
         '<span class="clip-meta"><span class="clip-name">' + clipLabel(clip.name) + "</span>" +
         '<span class="clip-sub">' + clip.frames + " frames</span></span></a></li>"

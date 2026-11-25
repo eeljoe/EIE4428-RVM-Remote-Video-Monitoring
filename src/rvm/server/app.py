@@ -29,8 +29,10 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading
 import time
 import typing
+import webbrowser
 from pathlib import Path
 
 from aiohttp import WSMsgType, web
@@ -40,7 +42,7 @@ from ..network.packet import Packet
 from .session import FaceRequestError, StreamSession
 from .source import open_source
 
-__all__ = ["build_app", "create_app", "main"]
+__all__ = ["build_app", "create_app", "dashboard_url", "main", "open_dashboard"]
 
 WEB_ROOT = Path(__file__).resolve().parent.parent / "web"
 
@@ -94,6 +96,8 @@ def create_app(
     app.router.add_get("/api/stream.mjpg", handle_mjpeg)
     app.router.add_get("/api/clips", handle_clips)
     app.router.add_get("/api/clips/{clip}/{frame}.jpg", handle_clip_frame)
+    app.router.add_get("/api/clips/{clip}/play", handle_clip_play)
+    app.router.add_get("/api/clips/{clip}/stream.mjpg", handle_clip_stream)
     app.router.add_get("/api/metrics", handle_metrics)
     app.router.add_post("/api/config", handle_config)
     app.router.add_post("/api/motion", handle_motion)
@@ -215,6 +219,119 @@ async def handle_clip_frame(request: web.Request) -> web.Response:
     return web.FileResponse(
         path, headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
     )
+
+
+#: Stored clips are replayed at roughly the rate they were captured, so a
+#: doorway that took four seconds to cross still takes four seconds to watch.
+CLIP_PLAYBACK_FPS = 12.0
+
+
+def _clip_frames(record_dir: str | Path, clip: str) -> list[Path]:
+    """Every stored frame of one clip, in capture order.
+
+    The index is parsed out of the filename rather than taken from the sort
+    order: ``..._999999.jpg`` sorts before ``..._1000000.jpg`` as text, and a
+    playback that jumps is worse than no playback.
+    """
+    numbered = []
+    for path in Path(record_dir).glob(f"{clip}_*.jpg"):
+        index = path.stem.rsplit("_", 1)[-1]
+        if index.isascii() and index.isdigit():
+            numbered.append((int(index), path))
+    return [path for _, path in sorted(numbered)]
+
+
+_CLIP_PLAY_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>RVM clip {clip}</title>
+<style>
+  body {{ margin: 0; background: #0b0d0e; color: #d8dee3;
+         font: 14px/1.5 system-ui, sans-serif; }}
+  header {{ display: flex; gap: 16px; align-items: baseline;
+            padding: 12px 18px; border-bottom: 1px solid #223; }}
+  h1 {{ font-size: 15px; margin: 0; letter-spacing: .04em; }}
+  a {{ color: #5fd3c6; text-decoration: none; }}
+  .meta {{ color: #8a97a0; }}
+  main {{ padding: 16px; }}
+  img {{ width: 100%; max-width: 960px; image-rendering: pixelated;
+         background: #000; display: block; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>CLIP {clip}</h1>
+  <span class="meta">{frames} frames &middot; replay at {fps:g} fps</span>
+  <a href="/">&larr; live view</a>
+</header>
+<main><img src="/api/clips/{clip}/stream.mjpg" alt="replay of clip {clip}" /></main>
+</body>
+</html>
+"""
+
+
+async def handle_clip_play(request: web.Request) -> web.Response:
+    """A page that replays one stored clip instead of showing its first frame."""
+    session: StreamSession = request.app[SESSION]
+    clip = request.match_info["clip"]
+    if not _CLIP_NAME.match(clip):
+        raise web.HTTPNotFound()
+    frames = await asyncio.to_thread(_clip_frames, session.record_dir, clip)
+    if not frames:
+        raise web.HTTPNotFound()
+    page = _CLIP_PLAY_PAGE.format(
+        clip=clip, frames=len(frames), fps=CLIP_PLAYBACK_FPS
+    )
+    return web.Response(text=page, content_type="text/html")
+
+
+async def handle_clip_stream(request: web.Request) -> web.StreamResponse:
+    """The stored frames of one clip, delivered as an MJPEG stream.
+
+    Replay is the same multipart shape the live view already uses, so the
+    browser needs no decoder, no player and no second code path: what the
+    operator recorded is what the operator watches.
+    """
+    session: StreamSession = request.app[SESSION]
+    clip = request.match_info["clip"]
+    if not _CLIP_NAME.match(clip):
+        raise web.HTTPNotFound()
+    frames = await asyncio.to_thread(_clip_frames, session.record_dir, clip)
+    if not frames:
+        raise web.HTTPNotFound()
+
+    boundary = b"--clip"
+    response = web.StreamResponse(
+        status=200,
+        headers={
+            "Content-Type": "multipart/x-mixed-replace; boundary=clip",
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "Pragma": "no-cache",
+        },
+    )
+    await response.prepare(request)
+
+    try:
+        for path in frames:
+            try:
+                data = await asyncio.to_thread(path.read_bytes)
+            except OSError:
+                continue
+            await response.write(
+                boundary
+                + b"\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                + str(len(data)).encode("ascii")
+                + b"\r\n\r\n"
+                + data
+                + b"\r\n"
+            )
+            await asyncio.sleep(1.0 / CLIP_PLAYBACK_FPS)
+    except (ConnectionResetError, asyncio.CancelledError):
+        return response
+
+    await response.write(boundary + b"--\r\n")
+    return response
 
 
 # --------------------------------------------------------------------------
@@ -546,6 +663,25 @@ def _opencv_distributions() -> list[str]:
     return sorted(found)
 
 
+def dashboard_url(port: int) -> str:
+    """The address a browser on the serving machine should open."""
+    return f"http://127.0.0.1:{port}/"
+
+
+def open_dashboard(port: int, opener: typing.Callable[[str], object] | None = None) -> threading.Thread:
+    """Open the dashboard in the background, so a browser cannot delay serving.
+
+    ``opener`` exists for the test suite: the default is :func:`webbrowser.open`,
+    which would launch a real browser during a test run.
+    """
+    open_url = opener if opener is not None else webbrowser.open
+    thread = threading.Thread(
+        target=open_url, args=(dashboard_url(port),), daemon=True
+    )
+    thread.start()
+    return thread
+
+
 def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
     import argparse
 
@@ -572,6 +708,11 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
         "--no-analysis",
         action="store_true",
         help="skip the optional face / gesture / audio analysers",
+    )
+    parser.add_argument(
+        "--open",
+        action="store_true",
+        help="open the dashboard in the default browser once the server is listening",
     )
     args = parser.parse_args(argv)
 
@@ -615,6 +756,9 @@ def main(argv: list[str] | None = None) -> None:  # pragma: no cover - CLI shim
             flush=True,
         )
         print("Press Ctrl+C to stop.", flush=True)
+
+        if args.open:
+            open_dashboard(args.port)
 
         try:
             await asyncio.Event().wait()

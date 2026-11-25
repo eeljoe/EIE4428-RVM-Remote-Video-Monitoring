@@ -114,7 +114,7 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 - 删除 `×`:32x32、透明底、1px `--line` 边、`--muted` 字;hover 变 `--alarm-soft` 底 + `--alarm` 边与字。≤900px 放大到 40x40(名单行内唯一的例外,其余控件恒 40 高)。
 - 过渡:150ms,只过渡 background-color / border-color / color;`prefers-reduced-motion: reduce` 时全部降到 .01ms。
 - 标签在输入框上方,不用占位符当标签;占位符只给例子(`e.g. Alice Ng`)。
-- 按钮文案 ≤3 词且桌面单行:`Apply`、`Clear zone`、`Camera`、`Decoded (RVM1)`、`Save snapshot`、`Start recording`、`Export metrics`、`REMEMBER FACE`。
+- 按钮文案 ≤3 词且桌面单行:`Apply`、`Stop watching`、`Camera`、`Decoded (RVM1)`、`Save snapshot`、`Start recording`、`Export metrics`、`REMEMBER FACE`。
 
 ### 4.3 状态行与名单
 
@@ -151,11 +151,11 @@ RVM operator page 的设计规范。本文是把已签字的参照图 v2 落成�
 - ≥901px:两栏 `minmax(0, 1fr) 460px`,列间 28 行间 20;右栏自身滚动 `max-height: calc(100vh - 102px)`(本票新增规则,现状里没有:mock 与 `src/rvm/web/style.css` 全文都没有这条;102 = 顶栏 56 + 下边框 1 + 布局上内边距 20 + 下内边距 24 + 1px 余量,右栏超高时在栏内滚动,不把整页撑长);1440x1000 一屏到底、无滚动无截断(参照图实测:文档高 1000,见 NOTES 第 9 条)。
 - ≤900px:单列,顺序固定为 **画面 → 控件 → 提示行 → FACE REGISTRY → 遥测四区**(STREAM、TRANSPORT、ANALYSIS、CLIPS)。用 `.viewer` / `.rail` 的 `display: contents` 加 `order` 实现,不改 DOM 顺序、不动无障碍阅读序。
 - 390px(落在 ≤560px 档):顶栏 52 高,隐藏 `Remote Video Monitor`;标签 14px;画面 4:3 满宽。控件逐行排:
-  - 第一行控件每行一条,三格「标签 + 下拉(占满剩余宽度) + 按钮」,即 `Target bitrate` 与 `Apply` 同一行、`Motion sensitivity` 与 `Clear zone` 同一行。
+  - 第一行控件每行一条,三格「标签 + 下拉(占满剩余宽度) + 按钮」,即 `Target bitrate` 与 `Apply` 同一行、`Motion sensitivity` 与 `Stop watching` 同一行。
   - `Camera` / `Decoded (RVM1)` 两列等宽;`Save snapshot` / `Start recording` 两列等宽;`Export metrics` 独占整行。
   - 删除 `×` 40x40。
 - 逐节折叠写死:读数仍双列;折线高度 30 不变;OSD 12px 不缩放;片段缩略图 56x42 不变;分区之间桌面 20 + 18(视觉间隔 38),≤900px 8 + 16(视觉间隔 24,mock `@media (max-width: 900px)` 同一选择器)。
-- 七个操作(Apply、Clear zone、Camera、Decoded (RVM1)、Save snapshot、Start recording、Export metrics)在 390x844 首屏内全部可见,不需要滚动才能点到(与 `mock-mobile.png` 逐项对上)。
+- 七个操作(Apply、Stop watching、Camera、Decoded (RVM1)、Save snapshot、Start recording、Export metrics)在 390x844 首屏内全部可见,不需要滚动才能点到(与 `mock-mobile.png` 逐项对上)。
 
 ## 7 码率折线峰值标注
 

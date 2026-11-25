@@ -90,7 +90,8 @@ SUMMARY = [
     "RVM (Remote Video Monitor) is a web-based remote video monitoring system. A "
     "video server captures a scene, compresses it and streams it over the Internet to "
     "one or more remote stations, where an operator views the live picture in an "
-    "ordinary web browser and is alerted when motion is detected.",
+    "ordinary web browser and is alerted while something moves inside a detection "
+    "zone the operator has drawn.",
 
     "The distinguishing feature of this project is that the codec is written from "
     "scratch rather than delegated to a library. The system implements the full "
@@ -106,7 +107,7 @@ SUMMARY = [
     "tuned, which is what the project is meant to teach. It also means the system "
     "carries no external codec dependency and runs anywhere Python runs.",
 
-    "The system was developed test-first: 594 automated tests cover the colour "
+    "The system was developed test-first: 664 automated tests cover the colour "
     "transform, the bit-level syntax, the transform and quantiser, the entropy "
     "coder, motion estimation, rate control, the complete encode/decode pair, the "
     "transport layer and the HTTP/WebSocket server. Tests were written before each "
@@ -122,9 +123,10 @@ SPECIAL_FEATURES = [
     "Motion detection with alarm and bounding box, using a learned background "
     "model, morphological erosion and separate raise/clear thresholds so the alarm "
     "does not chatter.",
-    "An operator-drawn detection zone and three sensitivity levels, so movement in "
-    "a corridor or behind glass can be ignored without switching the alarm off; "
-    "the region is applied on the server, so every viewer inherits it.",
+    "An operator-drawn detection zone that both arms detection and confines it, "
+    "plus three sensitivity levels, so movement in a corridor or behind glass can "
+    "be ignored without switching the alarm off; the region is applied on the "
+    "server, so every viewer inherits it.",
     "Face detection using an OpenCV Haar cascade, which degrades gracefully when "
     "the cascade data is unavailable.",
     "Object tracking: the motion mask is split into connected regions and each "
@@ -136,7 +138,8 @@ SPECIAL_FEATURES = [
     "during a demonstration shows the codec's own distortion instead of "
     "describing it.",
     "Video recording with burnt-in timestamp and frame index on every frame, in "
-    "colour.",
+    "colour, replayed from the dashboard: opening a clip plays the frames back "
+    "at the rate they were captured rather than showing a still.",
     "Live quality-of-service dashboard: bitrate, frame rate, quantiser parameter, "
     "PSNR, packet count, loss fraction and jitter estimate.",
     "Closed-loop rate control driven by a TM5 virtual buffer, with the H.264 "
@@ -381,15 +384,19 @@ UI_DESIGN = [
     "with a fixed aspect ratio so it does not jump as the stream updates. The "
     "resolution and elapsed time are overlaid at the bottom of the picture.",
 
-    "Motion is presented as a full-frame alarm overlay with a pulsing border and "
-    "the label MOTION DETECTED. An alarm that flickers is worse than no alarm, so "
-    "the detector applies hysteresis before the signal ever reaches the screen.",
+    "Motion detection is off when the page opens: a monitor that paints the "
+    "screen red before the operator has asked it to watch anything is noise, not "
+    "a feature. Drawing a zone on the picture arms it; an alarm is then presented "
+    "as a full-frame overlay with a pulsing border and the label MOTION DETECTED. "
+    "An alarm that flickers is worse than no alarm, so the detector applies "
+    "hysteresis before the signal ever reaches the screen.",
 
     "The detection zone is drawn by dragging on the picture; the rectangle appears as "
     "a dashed outline and is sent to the server as normalised coordinates, so it "
     "survives a page reload and a second viewer sees the same zone. Movement inside "
-    "the zone is outlined in red, movement outside it is ignored. A sensitivity "
-    "selector and a Clear zone button sit beside the bitrate control, and a Clips "
+    "the zone is outlined in red, movement outside it is ignored. The same zone is "
+    "the switch: the Stop watching button and the Esc key clear it and disarm "
+    "detection, and a sensitivity selector sits beside the bitrate control. A Clips "
     "panel lists the most recent recordings with a thumbnail of their first frame. "
     "Each moving object carries an ID tag and a fading dotted trail of its recent "
     "positions, so the operator can see where it came from at a glance.",
@@ -398,7 +405,8 @@ UI_DESIGN = [
     "measured frame rate, bitrate, the current quantiser parameter, PSNR and the "
     "codec in use. Transport shows packets sent, pictures delivered, packet loss "
     "and the jitter estimate, plus the number of connected viewers. Analysis shows "
-    "the motion ratio, the detection zone in force, the face count and whether "
+    "the motion ratio (or `off` while no zone is armed), whether a zone is in "
+    "force, the face count and whether "
     "recording is running. A small "
     "sparkline plots recent bitrate so a change in the operating point is visible "
     "immediately rather than having to be read off a single number.",
@@ -509,7 +517,7 @@ REFERENCES = [
     "vectorised transform, quantisation and motion estimation.",
 
     "pytest documentation, https://docs.pytest.org/ -- the test framework used "
-    "for the 594 automated tests.",
+    "for the 664 automated tests.",
 
     "EIE4428 Multimedia Communications lecture notes, Units 1 to 4, HK PolyU, "
     "2026: multimedia fundamentals and QoS targets, scalable coding, error and "

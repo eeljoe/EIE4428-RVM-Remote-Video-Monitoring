@@ -101,6 +101,9 @@ second polling loop.
 | `GET` | `/api/faces/known` | `{"known": ["Alice Ng", ...]}` — the registered names | none (a list, not an observation) |
 | `POST` | `/api/faces/known` | `{"name": "Alice Ng"}` → `201 {"name", "samples", "known"}` | failure body `{"error", "reason"}` |
 | `DELETE` | `/api/faces/known/{name}` | `{"removed": true, "known": [...]}`, `404` when the name is not there | failure body `{"error", "reason"}` |
+| `GET` | `/api/clips` | the recorded clips with their frame counts | none (a list, not an observation) |
+| `GET` | `/api/clips/{clip}/play` | a page that replays one stored clip | `404` when the clip does not exist |
+| `GET` | `/api/clips/{clip}/stream.mjpg` | the stored frames as a multipart MJPEG replay | `404` when the clip does not exist |
 
 ## Face registration
 
@@ -185,9 +188,10 @@ behaviour is auditable and their cost is bounded.
 - **Audio is analysed locally and never streamed.** The core stream is video
   only. Audio events describe what the microphone heard; a remote viewer does
   not receive audio.
-- **Gesture classification assumes an upright hand.** It is a geometric
-  heuristic over 21 landmarks; a rotated hand misreads. The handedness label is
-  reported, not compensated.
+- **Gesture classification is a rule table, not a second model.** A pose is read
+  off 21 landmarks in the palm's own frame — the wrist-to-knuckle axis — so the
+  same fist held upright, sideways or thumb-up classifies the same. The
+  handedness label is reported, not needed by the rules.
 - **A fist with the thumb tucked flat across the knuckles reads as
   `thumbs_up`.** The thumb test is reach from the wrist, which that pose also
   satisfies. Telling them apart needs palm-relative geometry (where the tip

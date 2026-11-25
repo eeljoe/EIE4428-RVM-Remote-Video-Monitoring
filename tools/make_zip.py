@@ -43,6 +43,10 @@ ROOT_FILES = [
     "requirements-dev.txt",
     "requirements-analysis.txt",
     "run.bat",
+    # The demonstration-day launcher: double-click, firewall rule, three
+    # addresses, browser.  Without it the marker has to type a command, which
+    # is exactly the thing this file exists to avoid.
+    "Start-RVM.bat",
     "run_server.py",
     "verify_system.py",
     "pyproject.toml",

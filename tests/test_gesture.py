@@ -225,6 +225,107 @@ def test_a_missing_model_is_reported_rather_than_raised(tmp_path, monkeypatch):
     assert "hand_landmarker.task" in (recognizer.unavailable_reason or "")
 
 
+
+# --------------------------------------------------------------------------
+# The pose must not depend on how the hand is held
+# --------------------------------------------------------------------------
+# The classifier used to read "fingertip above its knuckle" in image
+# coordinates, which is only true for an upright hand.  Rotate the same fist 90
+# degrees -- which is exactly what a thumbs-up is -- and the curled fingertips
+# sit above the knuckles, so the pose came back as an open palm.  These tests
+# build a hand from palm lengths and rotate it, so the coordinate frame cannot
+# silently become part of the answer.
+
+#: Knuckle position and three phalanx lengths per long finger, in palm lengths.
+_ROT_MCP = {
+    "index": (0.24, 0.94),
+    "middle": (0.00, 1.00),
+    "ring": (-0.24, 0.94),
+    "pinky": (-0.46, 0.84),
+}
+_ROT_SEGMENTS = {
+    "index": (0.42, 0.26, 0.20),
+    "middle": (0.46, 0.29, 0.22),
+    "ring": (0.42, 0.27, 0.20),
+    "pinky": (0.34, 0.21, 0.17),
+}
+_ROT_THUMB_OUT = [(0.50, 0.12), (0.78, 0.34), (0.95, 0.58), (1.05, 0.82)]
+_ROT_THUMB_IN = [(0.50, 0.12), (0.72, 0.30), (0.72, 0.52), (0.62, 0.66)]
+
+
+def _bent_chain(start, segments, curl_deg):
+    x, y = start
+    points = [(x, y)]
+    heading = np.pi / 2.0
+    bend = np.radians(curl_deg) / len(segments)
+    for length in segments:
+        heading += bend  # a curl folds the finger back toward the wrist
+        x += length * np.cos(heading)
+        y += length * np.sin(heading)
+        points.append((x, y))
+    return points
+
+
+def rotated_hand(extended, thumb_extended, angle_deg, scale=0.22):
+    """A 21-landmark hand built from anatomy, then rotated in the image plane.
+
+    150 degrees of curl folds a finger onto the palm; 0 keeps it straight.  The
+    result is in MediaPipe's normalised image space, y downward.
+    """
+    points = [(0.0, 0.0)]
+    points += _ROT_THUMB_OUT if thumb_extended else _ROT_THUMB_IN
+    for finger in ("index", "middle", "ring", "pinky"):
+        curl = 0.0 if finger in extended else 150.0
+        points += _bent_chain(_ROT_MCP[finger], _ROT_SEGMENTS[finger], curl)
+
+    rad = np.radians(angle_deg)
+    cos_r, sin_r = np.cos(rad), np.sin(rad)
+    return [
+        SimpleNamespace(
+            x=0.5 + (x * cos_r - y * sin_r) * scale,
+            y=0.62 - (x * sin_r + y * cos_r) * scale,
+            z=0.0,
+        )
+        for x, y in points
+    ]
+
+
+ROTATED_POSES = {
+    "open_palm": (("index", "middle", "ring", "pinky"), True),
+    "closed_fist": ((), False),
+    "peace_sign": (("index", "middle"), False),
+    "pointing": (("index",), False),
+}
+
+#: Every in-plane angle a hand may be held at.
+ANGLES = [0.0, 45.0, 90.0, 135.0, 180.0, 225.0, 270.0, 315.0]
+#: A thumbs-up is the fist rotated until the thumb points up.
+THUMB_UP_ANGLES = [55.0, 70.0, 85.0, 90.0, 100.0, 115.0]
+
+
+@pytest.mark.parametrize("angle", ANGLES)
+@pytest.mark.parametrize("pose", sorted(ROTATED_POSES))
+def test_a_pose_keeps_its_name_at_every_rotation(pose, angle):
+    extended, thumb = ROTATED_POSES[pose]
+    hand = rotated_hand(extended, thumb, angle)
+    assert GestureRecognizer()._classify_gesture(hand).value == pose
+
+
+@pytest.mark.parametrize("angle", THUMB_UP_ANGLES)
+def test_thumbs_up_survives_the_rotation_that_makes_it_a_thumbs_up(angle):
+    """The reported bug: a raised thumb read back as an open palm."""
+    hand = rotated_hand((), True, angle)
+    assert GestureRecognizer()._classify_gesture(hand) is GestureType.THUMBS_UP
+
+
+def test_the_extended_test_is_measured_in_palm_lengths_not_in_pixels():
+    """A hand far from the camera must classify like a hand close to it."""
+    near = rotated_hand(("index",), False, 30.0, scale=0.42)
+    far = rotated_hand(("index",), False, 30.0, scale=0.10)
+    recognizer = GestureRecognizer()
+    assert recognizer._classify_gesture(near) is GestureType.POINTING
+    assert recognizer._classify_gesture(far) is GestureType.POINTING
+
 def test_every_named_pose_reports_more_confidence_than_an_unknown_one():
     recognizer = GestureRecognizer()
     unknown = recognizer.CONFIDENCE[GestureType.UNKNOWN]

@@ -7,6 +7,8 @@ operator draws is the difference between a useful alarm and one that is
 switched off after ten minutes.
 """
 
+import asyncio
+
 import numpy as np
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
@@ -165,6 +167,54 @@ def test_session_clears_the_region():
     assert s.status()["roi"] is None
 
 
+def test_a_new_session_is_not_watching_anything():
+    """Motion detection is off until a zone is drawn: no red screen on load."""
+    s = session()
+
+    assert s.motion_enabled is False
+    assert s.status()["motion_enabled"] is False
+    assert s.status()["alarm"] is False
+
+
+def test_drawing_a_zone_arms_detection_and_clearing_it_disarms():
+    s = session()
+
+    s.set_roi((0.25, 0.25, 0.75, 0.75))
+    assert s.motion_enabled is True
+
+    s.set_roi(None)
+    assert s.motion_enabled is False
+    assert s.status()["motion_enabled"] is False
+
+
+def test_frames_are_not_watched_until_a_zone_is_drawn():
+    s = session()
+    scene = np.full((HEIGHT, WIDTH, 3), 50, dtype=np.uint8)
+
+    for _ in range(5):
+        s.inject_frame(scene)
+        asyncio.run(s.run_once())
+    s.inject_frame(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
+    asyncio.run(s.run_once())
+
+    assert s.status()["alarm"] is False
+    assert s.status()["tracks"] == []
+
+
+def test_a_drawn_zone_is_what_makes_the_alarm_possible():
+    s = session()
+    scene = np.full((HEIGHT, WIDTH, 3), 50, dtype=np.uint8)
+
+    s.set_roi((0.0, 0.0, 1.0, 1.0))
+    for _ in range(5):
+        s.inject_frame(scene)
+        asyncio.run(s.run_once())
+    s.inject_frame(np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8))
+    asyncio.run(s.run_once())
+
+    assert s.status()["alarm"] is True
+
+
 def test_session_exposes_the_sensitivity_level():
     s = session()
 
@@ -271,6 +321,18 @@ async def test_the_client_script_drives_the_new_controls(client):
     assert "/api/motion" in script
     assert "pointerdown" in script
     assert "/api/clips" in script
+
+
+async def test_stop_watching_is_one_key_or_one_button(client):
+    """Esc and the Stop button both clear the zone, which disarms detection."""
+    script = await (await client.get("/static/app.js")).text()
+    page = await (await client.get("/")).text()
+
+    assert 'event.key !== "Escape"' in script
+    assert "stopWatching" in script
+    assert 'postJSON("/api/motion", { roi: null })' in script
+    assert 'id="clear-roi"' in page
+    assert "Motion detection is off" in page
 
 async def test_an_unhashable_sensitivity_value_is_a_400_not_a_crash(client):
     """A list is not a name: it must be refused, not raise inside the lookup."""

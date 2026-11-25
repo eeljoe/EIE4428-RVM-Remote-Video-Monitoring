@@ -33,7 +33,7 @@ With a webcam: drop `--no-camera`, or select one with `--camera 1`.
 Run the tests:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pytest          # 594 tests, ~25s
+.\.venv\Scripts\python.exe -m pytest          # 622 tests, ~30s
 ```
 
 Measure the encoder on the machine you are going to demonstrate on:
@@ -54,9 +54,9 @@ Measure the encoder on the machine you are going to demonstrate on:
 | **Transport** | RTP packetisation with marker bit, adaptive jitter buffer, RFC 3550 jitter recursion |
 | **Analysis** | Motion detection with alarm + bounding box, Haar face detection, PSNR / SSIM |
 | **Tracking** | Each moving object keeps an ID and a fading trail across frames — the motion mask is split into connected regions and matched by nearest centroid |
-| **Detection zone** | Drag a box on the picture to watch only that area; three sensitivity levels. The zone lives on the server, so a reload or a second viewer sees the same one |
+| **Detection zone** | Motion detection is **off until you drag a box** on the picture; three sensitivity levels. The zone lives on the server, so a reload or a second viewer sees the same one, and **Esc** (or *Stop watching*) disarms it again |
 | **Face registry** | Type a name on the dashboard and press **REMEMBER FACE**: the server averages one face from each of the last three analysed frames, stores it, and the panel then shows that person as `name · similarity`. Each saved name has a delete `×`, and the list survives a restart |
-| **Clips** | Recording list with a thumbnail of each clip's first frame, served from `/api/clips/<clip>/<n>.jpg` |
+| **Clips** | Recording list with a thumbnail of each clip's first frame; clicking one replays the clip at its capture rate (`/api/clips/<clip>/play`) |
 | **Recording** | Timestamped colour JPEG clips written off the live path |
 | **Concurrency** | Unlimited viewers; one encode feeds all of them |
 | **Two views** | *Camera* shows the raw picture, *Decoded (RVM1)* shows what a receiver reconstructs from the bitstream — the codec's own distortion, visible rather than claimed |
@@ -183,6 +183,8 @@ API latency above is the evidence that it does not.
 | `GET` | `/api/metrics` | Full telemetry as JSON |
 | `GET` | `/api/clips` | List recorded clips |
 | `GET` | `/api/clips/<clip>/<n>.jpg` | Frame *n* of a stored clip |
+| `GET` | `/api/clips/<clip>/play` | Playback page for one stored clip |
+| `GET` | `/api/clips/<clip>/stream.mjpg` | That clip's frames as a multipart MJPEG replay |
 | `POST` | `/api/config` | Set target bit rate without restarting the stream |
 | `POST` | `/api/motion` | Set the detection zone and sensitivity |
 | `POST` | `/api/record` | Start / stop recording |
@@ -327,13 +329,14 @@ half-finished report cannot be shipped by accident.
 
 Five to seven minutes, in the order that shows the most with the least clicking.
 
-1. Start the server on the machine with the camera; open the printed LAN address on the second PC. Say what the picture is: a remote station watching a place through an ordinary browser.
-2. Move in front of the camera. The alarm overlay pulses and a red box follows the movement.
-3. Drag a box around the doorway (or any corner), then move outside it: no alarm. Move inside it: alarm. Say that the zone is enforced on the server, so every viewer gets it.
-4. Switch the sensitivity to *low*, wave again; switch back. Explain that the three levels trade false alarms against missed events.
-5. Switch to **Decoded (RVM1)** and back. The picture barely changes, so the quality cost of the codec is visible instead of claimed. Point at PSNR and QP in the panel.
-6. Open the dashboard a second time (another browser or a phone). Both viewers work, and the encoder cost did not change — one encode feeds everyone.
-7. Start a recording, stop it, and show the clip appearing in the Clips panel with its thumbnail. Explain that frames are timestamped and written off the live path.
+1. Start the server on the machine with the camera; open the printed LAN address on the second PC. Say what the picture is: a remote station watching a place through an ordinary browser. The picture is calm because detection is off.
+2. Drag a box around the doorway (or any corner). This is what arms detection — say that the zone is enforced on the server, so every viewer gets it.
+3. Move in front of the camera inside the box: the alarm overlay pulses and a red box follows the movement. Move outside it: no alarm.
+4. Press **Esc** (or *Stop watching*): the alarm stops and detection is off again. Draw the box once more to continue.
+5. Switch the sensitivity to *low*, wave again; switch back. Explain that the three levels trade false alarms against missed events.
+6. Switch to **Decoded (RVM1)** and back. The picture barely changes, so the quality cost of the codec is visible instead of claimed. Point at PSNR and QP in the panel.
+7. Open the dashboard a second time (another browser or a phone). Both viewers work, and the encoder cost did not change — one encode feeds everyone.
+8. Start a recording, stop it, and show the clip appearing in the Clips panel with its thumbnail. Explain that frames are timestamped and written off the live path.
 
 ## Before submission
 

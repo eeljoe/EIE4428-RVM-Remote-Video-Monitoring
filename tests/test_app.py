@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from aiohttp.test_utils import TestClient, TestServer
 
-from rvm.server.app import _opencv_distributions, create_app
+from rvm.server.app import _opencv_distributions, create_app, dashboard_url, open_dashboard
 from rvm.server.session import StreamSession
 
 
@@ -172,6 +172,53 @@ async def test_clips_endpoint_lists_recordings(client):
 
     assert listed["count"] == 1
     assert listed["clips"][0]["frames"] >= 1
+
+
+async def _record_one_clip(client, want_frames=2):
+    """Record until the clip holds at least ``want_frames`` pictures."""
+    await (await client.post("/api/record", json={"recording": True})).json()
+    for _ in range(60):
+        listed = await (await client.get("/api/clips")).json()
+        if listed["count"] == 1 and listed["clips"][0]["frames"] >= want_frames:
+            break
+        await asyncio.sleep(0.05)
+    await (await client.post("/api/record", json={"recording": False})).json()
+    listed = await (await client.get("/api/clips")).json()
+    return listed["clips"][0]
+
+
+async def test_a_recorded_clip_replays_instead_of_showing_one_frame(client):
+    """A clip is a recording, so opening it must show the recording.
+
+    It used to link to frame 0 only, which reads as a broken video player.
+    """
+    clip = await _record_one_clip(client)
+    name = clip["name"]
+
+    page = await client.get("/api/clips/" + name + "/play")
+    assert page.status == 200
+    assert page.content_type == "text/html"
+    body = await page.text()
+    assert name in body
+    assert "/api/clips/" + name + "/stream.mjpg" in body
+
+    stream = await client.get("/api/clips/" + name + "/stream.mjpg")
+    assert stream.status == 200
+    assert stream.headers["Content-Type"].startswith("multipart/x-mixed-replace")
+    payload = await stream.read()
+    assert payload.count(b"--clip") >= 2
+    # One JPEG start-of-image marker per replayed frame.
+    assert payload.count(bytes([0xFF, 0xD8])) >= 2
+
+
+async def test_an_unknown_clip_has_no_playback(client):
+    assert (await client.get("/api/clips/20260101_000000/play")).status == 404
+    assert (await client.get("/api/clips/20260101_000000/stream.mjpg")).status == 404
+
+
+async def test_a_clip_name_that_is_not_a_timestamp_is_refused(client):
+    assert (await client.get("/api/clips/not-a-clip/play")).status == 404
+    assert (await client.get("/api/clips/not-a-clip/stream.mjpg")).status == 404
 
 
 # --------------------------------------------------------------------------
@@ -830,3 +877,26 @@ async def test_face_ids_print_the_name_with_its_similarity(client):
     assert "renderNames" not in block, "the identity line reads the registry list"
     assert '"face-list"' not in block
     assert "m-identities" in script
+
+
+# --------------------------------------------------------------------------
+# The launcher's auto-open
+# --------------------------------------------------------------------------
+
+
+def test_open_dashboard_points_the_browser_at_the_local_page():
+    """`--open` must open a browsable address, not the 0.0.0.0 bind address.
+
+    The server binds ``0.0.0.0`` so other machines can reach it, but a browser
+    cannot load ``http://0.0.0.0:8080/``; the dashboard therefore opens on the
+    loopback address.  The thread is joined so the assertion cannot race the
+    browser call.
+    """
+    opened: list[str] = []
+
+    thread = open_dashboard(8123, opener=opened.append)
+    thread.join(2)
+
+    assert not thread.is_alive()
+    assert opened == [dashboard_url(8123)]
+    assert opened == ["http://127.0.0.1:8123/"]

@@ -230,6 +230,9 @@ async def test_status_lists_no_tracks_before_any_frame():
 
 async def test_an_intruder_gets_a_track_with_a_box_and_a_trail():
     s = session()
+    # Tracking follows the motion mask, and motion detection is off until a
+    # zone is drawn.
+    s.set_roi((0.0, 0.0, 1.0, 1.0))
     s.inject_frame(dark_scene())
     await s.run_once()  # the first frame only teaches the background
 
@@ -257,6 +260,7 @@ async def test_a_still_scene_reports_no_tracks():
 
 async def test_changing_the_zone_forgets_the_tracks():
     s = session()
+    s.set_roi((0.0, 0.0, 1.0, 1.0))
     s.inject_frame(dark_scene())
     await s.run_once()
     s.inject_frame(with_square(dark_scene(), 30, 40))
@@ -270,6 +274,7 @@ async def test_changing_the_zone_forgets_the_tracks():
 
 async def test_changing_the_sensitivity_forgets_the_tracks():
     s = session()
+    s.set_roi((0.0, 0.0, 1.0, 1.0))
     s.inject_frame(dark_scene())
     await s.run_once()
     s.inject_frame(with_square(dark_scene(), 30, 40))
@@ -306,6 +311,7 @@ async def client():
 
 async def test_the_status_endpoint_carries_tracks(client):
     test_client, s = client
+    s.set_roi((0.0, 0.0, 1.0, 1.0))
     s.inject_frame(dark_scene())
     await s.run_once()
     s.inject_frame(with_square(dark_scene(), 30, 40))
